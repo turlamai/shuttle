@@ -9,7 +9,8 @@ namespace winrt::RivetHost::implementation {
 // One row in the transfers list. Events arrive as immutable snapshots;
 // Apply() diffs against the current fields and raises PropertyChanged
 // only for what actually changed, so a fast progress stream does not
-// spam the whole row.
+// spam the whole row. Apply is an implementation-side helper (the UI
+// binds the read-only properties below), not part of the projected API.
 struct TransferItem : TransferItemT<TransferItem> {
   TransferItem() = default;
 
@@ -17,10 +18,9 @@ struct TransferItem : TransferItemT<TransferItem> {
       winrt::Microsoft::UI::Xaml::Data::PropertyChangedEventHandler const& handler);
   void PropertyChanged(winrt::event_token const& token) noexcept;
 
-  void Apply(std::int32_t direction, winrt::param::hstring const& filename,
+  void Apply(std::int32_t direction, winrt::hstring const& filename,
              std::int64_t size, std::int64_t progress, std::int32_t status,
-             winrt::param::hstring const& message,
-             winrt::param::hstring const& stamp);
+             winrt::hstring const& message, winrt::hstring const& stamp);
 
   hstring Id() const { return id_; }
   hstring Filename() const { return filename_; }

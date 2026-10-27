@@ -4,7 +4,6 @@
 #include "TransferItem.g.cpp"
 #endif
 
-#include <cctype>
 #include <sstream>
 
 using namespace winrt;
@@ -38,6 +37,10 @@ std::wstring short_stamp(std::wstring const& stamp) {
     return stamp.substr(5);
   }
   return stamp;
+}
+
+hstring tr_hstring(char const* key) {
+  return winrt::to_hstring(std::string(rivet_app::i18n::tr("zh", key)));
 }
 
 }  // namespace
@@ -90,7 +93,7 @@ void TransferItem::Apply(std::int32_t direction, hstring const& filename,
       case 4: key = L"status.failed"; break;
       default: break;
     }
-    status_text_ = hstring(rivet_app::i18n::tr("zh", key));
+    status_text_ = tr_hstring(key);
   }
 
   if (changed_progress || changed_size) {
@@ -105,7 +108,7 @@ void TransferItem::Apply(std::int32_t direction, hstring const& filename,
   }
 
   std::wstring const stamp_text =
-      format_bytes(size) + L" \u00b7 " + short_stamp(std::wstring(stamp));
+      format_bytes(size) + L" \u00b7 " + short_stamp(std::wstring{stamp});
   size_stamp_text_ = hstring(stamp_text);
 
   if (!applied_) {

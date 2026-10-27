@@ -40,12 +40,13 @@ struct MainWindow : MainWindowT<MainWindow> {
   void UpsertTransfer(rivet_app::Transfer const& transfer);
   void UpdateEmptyState();
   void SendPathsAsync(std::vector<std::wstring> paths);
-  void ShowError(std::wstring const& message);
+  void ShowError(winrt::hstring const& message);
   void ShowSettingsDialog();
 
   std::shared_ptr<rivet::windows::Backend> backend_;
   std::unique_ptr<rivet::system::TrayController> tray_;
 
+  winrt::Microsoft::UI::Xaml::Controls::Grid root_grid_{nullptr};
   winrt::Microsoft::UI::Xaml::Controls::InfoBar error_bar_{nullptr};
   winrt::Microsoft::UI::Xaml::Controls::ListView transfers_list_{nullptr};
   winrt::Microsoft::UI::Xaml::Controls::TextBlock empty_state_{nullptr};
@@ -53,8 +54,7 @@ struct MainWindow : MainWindowT<MainWindow> {
   winrt::Microsoft::UI::Xaml::Controls::TextBlock health_text_{nullptr};
   winrt::Microsoft::UI::Xaml::Shapes::Ellipse health_dot_{nullptr};
   winrt::Microsoft::UI::Xaml::Controls::Border drop_zone_{nullptr};
-  winrt::Microsoft::UI::Xaml::Media::Brush drop_zone_fill_{nullptr};
-  winrt::Microsoft::UI::Xaml::Media::Brush drop_zone_fill_active_{nullptr};
+  winrt::Microsoft::UI::Xaml::Controls::ContentDialog settings_dialog_{nullptr};
 
   std::map<std::wstring, winrt::RivetHost::TransferItem, std::less<>> items_;
 

@@ -32,10 +32,12 @@ jobs:
         run: |
           raco pkg install --auto --no-docs 'https://github.com/turinglambdaai/keel.git#76a5b9fdd01bde284d310ff5c05ec73972f64201'
           raco pkg install --auto --no-docs 'https://github.com/turinglambdaai/rivet.git#${{ env.RIVET_PIN }}'
-      # Schema-contract gate + full WinUI 3 native build. The runner's
-      # MSVC toolchain is the release compiler; local machines without
-      # Build Tools stay green through this job.
-      - name: Acceptance (schema contract + native build)
-        run: raco rivet acceptance --json
+      - name: Schema contract gate
+        run: raco rivet schema check rivet-schema.json --json
+      # The runner's MSVC toolchain is the release compiler; local
+      # machines without Build Tools stay green through this job. Plain
+      # output so MSVC/XAML errors land directly in the log.
+      - name: Native build (WinUI 3 host)
+        run: raco rivet build
       - name: Backend engine tests (pure units)
         run: raco test app/backend.rkt

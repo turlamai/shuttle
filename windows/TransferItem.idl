@@ -6,11 +6,6 @@ namespace RivetHost
     {
         TransferItem();
 
-        // Bulk refresh from a backend Transfer snapshot; fires one
-        // PropertyChanged per changed property.
-        void Apply(Int32 direction, String filename, Int64 size, Int64 progress,
-                   Int32 status, String message, String stamp);
-
         String Id { get; };
         String Filename { get; };
         String DirectionGlyph { get; };

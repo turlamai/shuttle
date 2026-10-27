@@ -11,10 +11,6 @@
 #include <stdexcept>
 
 #include <winrt/Microsoft.UI.Windowing.h>
-#include <winrt/Microsoft.UI.Xaml.Data.h>
-#include <winrt/Microsoft.UI.Xaml.Input.h>
-#include <winrt/Microsoft.UI.Xaml.Media.h>
-#include <winrt/Microsoft.UI.Xaml.Shapes.h>
 #include <winrt/Windows.ApplicationModel.DataTransfer.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Storage.Pickers.h>
@@ -24,6 +20,18 @@
 #include <winreg.h>
 
 namespace winrt::RivetHost::implementation {
+
+using namespace winrt;
+using namespace winrt::Microsoft::UI::Xaml;
+using namespace winrt::Microsoft::UI::Xaml::Controls;
+using namespace winrt::Microsoft::UI::Xaml::Media;
+using namespace winrt::Windows::Foundation;
+using namespace winrt::Windows::Foundation::Collections;
+using namespace winrt::Windows::Storage;
+using namespace winrt::Windows::Storage::Pickers;
+
+namespace DataTransfer = winrt::Windows::ApplicationModel::DataTransfer;
+
 namespace {
 
 constexpr wchar_t kAutostartKeyPath[] =
@@ -90,8 +98,10 @@ void BindPickerToWindow(Picker const& picker, HWND window) {
   }
 }
 
-std::wstring tr_wide(char const* key) {
-  return std::wstring(rivet_app::i18n::tr("zh", key));
+// i18n strings are UTF-8 string_views from the embedded table; project
+// text APIs need UTF-16 hstrings.
+hstring tr_hstring(char const* key) {
+  return winrt::to_hstring(std::string(rivet_app::i18n::tr("zh", key)));
 }
 
 bool AutostartEnabled() {
@@ -126,9 +136,30 @@ void SetAutostart(bool enable) {
   ::RegCloseKey(key);
 }
 
-Media::SolidColorBrush DotBrush(winrt::Windows::UI::Color color) {
-  Media::SolidColorBrush brush{color};
+Media::SolidColorBrush AccentBrush() {
+  Media::SolidColorBrush brush{
+      winrt::Windows::UI::Color{0xFF, 0x00, 0x78, 0xD4}};
   return brush;
+}
+
+// The active fill is a solid accent tint; the rest fill is the XAML
+// resource on the window's root grid, resolved through the window.
+Media::SolidColorBrush AccentFillBrush() {
+  Media::SolidColorBrush brush{
+      winrt::Windows::UI::Color{0x1A, 0x00, 0x78, 0xD4}};
+  return brush;
+}
+
+Media::Brush RestFillBrush(winrt::RivetHost::implementation::MainWindow* window) {
+  return window->root_grid_.Resources()
+      .Lookup(box_value(hstring(L"DropZoneFill")))
+      .as<Media::Brush>();
+}
+
+Media::SolidColorBrush HealthBrush(bool ok) {
+  return Media::SolidColorBrush(
+      ok ? winrt::Windows::UI::Color{0xFF, 0x2E, 0xB4, 0x48}
+         : winrt::Windows::UI::Color{0xFF, 0xE4, 0x3C, 0x3C});
 }
 
 }  // namespace
@@ -173,12 +204,7 @@ MainWindow::MainWindow() {
 }
 
 void MainWindow::SetupLocalization() {
-  DropTitle().Text(hstring(tr_wide("drop.title")));
-  DropSubtitle().Text(hstring(tr_wide("drop.subtitle")));
-  TransfersTitle().Text(hstring(tr_wide("transfers.title")));
-  EmptyState().Text(hstring(tr_wide("transfers.empty")));
-  ClearHistoryButton().Content(box_value(hstring(tr_wide("transfers.clear"))));
-
+  root_grid_ = RootGrid();
   error_bar_ = ErrorBar();
   transfers_list_ = TransfersList();
   empty_state_ = EmptyState();
@@ -186,15 +212,14 @@ void MainWindow::SetupLocalization() {
   health_text_ = HealthText();
   health_dot_ = HealthDot();
   drop_zone_ = DropZone();
-  drop_zone_fill_ = Resources()
-                        .Lookup(box_value(hstring(L"DropZoneFill")))
-                        .as<Media::Brush>();
-  drop_zone_fill_active_ = Resources()
-                               .Lookup(box_value(hstring(L"DropZoneFillActive")))
-                               .as<Media::Brush>();
 
-  auto const rows =
-      winrt::single_threaded_observable_vector<winrt::RivetHost::TransferItem>();
+  DropTitle().Text(tr_hstring("drop.title"));
+  DropSubtitle().Text(tr_hstring("drop.subtitle"));
+  TransfersTitle().Text(tr_hstring("transfers.title"));
+  EmptyState().Text(tr_hstring("transfers.empty"));
+  ClearHistoryButton().Content(box_value(tr_hstring("transfers.clear")));
+
+  auto const rows = single_threaded_observable_vector<winrt::RivetHost::TransferItem>();
   transfers_list_.ItemsSource(rows);
   UpdateEmptyState();
 
@@ -203,19 +228,18 @@ void MainWindow::SetupLocalization() {
     if (window == nullptr) return;
     auto const backend = window->backend_;
     if (backend == nullptr || !backend->running()) {
-      window->ShowError(tr_wide("error.backend-not-ready"));
+      window->ShowError(tr_hstring("error.backend-not-ready"));
       return;
     }
     try {
       rivet_app::API api(*backend);
       (void)api.clear_history().get();
     } catch (...) {
-      window->ShowError(tr_wide("error.backend-not-ready"));
+      window->ShowError(tr_hstring("error.backend-not-ready"));
       return;
     }
     window->items_.clear();
-    auto const fresh = winrt::single_threaded_observable_vector<
-        winrt::RivetHost::TransferItem>();
+    auto const fresh = single_threaded_observable_vector<winrt::RivetHost::TransferItem>();
     window->transfers_list_.ItemsSource(fresh);
     window->UpdateEmptyState();
   });
@@ -226,34 +250,29 @@ void MainWindow::SetupLocalization() {
     }
   });
 
-  DropZone().DragOver([](winrt::Windows::Foundation::IInspectable const& sender,
-                         winrt::Windows::ApplicationModel::DataTransfer::DragEventArgs const& args) {
-    args.AcceptedOperation(
-        winrt::Windows::ApplicationModel::DataTransfer::DataPackageOperation::Copy);
-    // sender is the Border itself (the handler is attached to DropZone).
-    sender.as<Controls::Border>().Background(
-        Application::Current().Resources()
-            .Lookup(box_value(hstring(L"DropZoneFillActive")))
-            .as<Media::Brush>());
+  DropZone().DragOver([weak = get_weak()](IInspectable const& sender,
+                                          DataTransfer::DragEventArgs const&
+                                              args) {
+    args.AcceptedOperation(DataPackageOperation::Copy);
+    sender.as<Border>().Background(AccentFillBrush());
+    sender.as<Border>().BorderBrush(AccentBrush());
   });
 
-  DropZone().DragLeave([](winrt::Windows::Foundation::IInspectable const& sender,
-                          winrt::Windows::ApplicationModel::DataTransfer::DragEventArgs const&) {
-    sender.as<Controls::Border>().Background(
-        Application::Current().Resources()
-            .Lookup(box_value(hstring(L"DropZoneFill")))
-            .as<Media::Brush>());
+  DropZone().DragLeave([weak = get_weak()](IInspectable const& sender,
+                                           DataTransfer::DragEventArgs const&) {
+    if (auto window = weak.get()) {
+      sender.as<Border>().Background(RestFillBrush(window));
+      sender.as<Border>().BorderBrush(nullptr);
+    }
   });
 
-  DropZone().Drop([weak = get_weak()](
-                      winrt::Windows::Foundation::IInspectable const& sender,
-                      winrt::Windows::ApplicationModel::DataTransfer::DragEventArgs const& args) {
-    sender.as<Controls::Border>().Background(
-        Application::Current().Resources()
-            .Lookup(box_value(hstring(L"DropZoneFill")))
-            .as<Media::Brush>());
-    if (!args.DataView().Contains(
-            winrt::Windows::ApplicationModel::DataTransfer::StandardDataFormats::StorageItems())) {
+  DropZone().Drop([weak = get_weak()](IInspectable const& sender,
+                                      DataTransfer::DragEventArgs const& args) {
+    if (auto window = weak.get()) {
+      sender.as<Border>().Background(RestFillBrush(window));
+      sender.as<Border>().BorderBrush(nullptr);
+    }
+    if (!args.DataView().Contains(StandardDataFormats::StorageItems())) {
       return;
     }
     auto const operation = args.DataView().GetStorageItemsAsync();
@@ -281,9 +300,10 @@ void MainWindow::SetupLocalization() {
 void MainWindow::SetupWindowBehavior() {
   auto const app_window = AppWindow();
   app_window.Closing(
-      [this](winrt::Microsoft::UI::Windowing::AppWindow const&,
-             winrt::Microsoft::UI::Windowing::AppWindowClosingEventArgs const&
-                 args) {
+      [this, app_window](
+          winrt::Microsoft::UI::Windowing::AppWindow const&,
+          winrt::Microsoft::UI::Windowing::AppWindowClosingEventArgs const&
+              args) {
         if (exit_requested_) return;
         if (tray_available_) {
           args.Cancel(true);
@@ -299,7 +319,8 @@ void MainWindow::SetupTray() {
     if (icon == nullptr) return;
 
     std::vector<rivet::system::TrayMenuItem> menu;
-    menu.emplace_back(static_cast<UINT>(1), tr_wide("tray.open"),
+    menu.emplace_back(static_cast<UINT>(1),
+                      std::wstring{tr_hstring("tray.open")},
                       [weak = get_weak()] {
                         if (auto window = weak.get()) {
                           window->AppWindow().Show();
@@ -307,7 +328,8 @@ void MainWindow::SetupTray() {
                         }
                       });
     menu.emplace_back(rivet::system::TrayMenuItem::Type::separator);
-    menu.emplace_back(static_cast<UINT>(2), tr_wide("tray.exit"),
+    menu.emplace_back(static_cast<UINT>(2),
+                      std::wstring{tr_hstring("tray.exit")},
                       [weak = get_weak()] {
                         if (auto window = weak.get()) {
                           window->exit_requested_ = true;
@@ -317,7 +339,7 @@ void MainWindow::SetupTray() {
 
     tray_ = std::make_unique<rivet::system::TrayController>(
         WindowHandle(), kTrayIconId, kTrayCallbackMessage,
-        tr_wide("tray.tooltip"), icon, std::move(menu));
+        std::wstring{tr_hstring("tray.tooltip")}, icon, std::move(menu));
     tray_available_ = true;
   } catch (...) {
     // Tray presence is an enhancement; the window works without it.
@@ -357,7 +379,7 @@ winrt::fire_and_forget MainWindow::InitializeBackendAsync() {
                   using Payload = std::decay_t<decltype(payload)>;
                   if constexpr (std::is_same_v<
                                     Payload,
-                                    rivet_app::TransferChangedEvent>) {
+                                    rivet_app::Transfer_changedEvent>) {
                     auto const transfer = payload.value;
                     if (auto current = weak.get()) {
                       current->DispatcherQueue().TryEnqueue([weak, transfer] {
@@ -374,7 +396,7 @@ winrt::fire_and_forget MainWindow::InitializeBackendAsync() {
                             if (auto window = weak.get()) {
                               window->ApplyRelayHealth(
                                   health.ok,
-                                  winrt::to_hstring(health.message).c_str());
+                                  winrt::to_hstring(health.message));
                             }
                           });
                     }
@@ -394,8 +416,9 @@ winrt::fire_and_forget MainWindow::InitializeBackendAsync() {
                     window->UpsertTransfer(transfer);
                   }
                   window->caption_machine_.Text(
-                      L"本机 " + std::wstring{
-                                     winrt::to_hstring(settings.machine)});
+                      hstring{L"本机 " +
+                              std::wstring{winrt::to_hstring(
+                                  settings.machine)}});
                 }
               });
         } catch (std::exception const& e) {
@@ -419,20 +442,19 @@ winrt::fire_and_forget MainWindow::InitializeBackendAsync() {
 }
 
 void MainWindow::SetErrorUi(std::string const& message) {
-  ErrorBar().Severity(Controls::InfoBarSeverity::Error);
+  ErrorBar().Severity(InfoBarSeverity::Error);
   ErrorBar().Message(winrt::to_hstring(message));
   ErrorBar().IsOpen(true);
 }
 
-void MainWindow::ShowError(std::wstring const& message) {
-  ErrorBar().Severity(Controls::InfoBarSeverity::Error);
-  ErrorBar().Message(hstring(message));
+void MainWindow::ShowError(hstring const& message) {
+  ErrorBar().Severity(InfoBarSeverity::Error);
+  ErrorBar().Message(message);
   ErrorBar().IsOpen(true);
 }
 
 void MainWindow::ApplyRelayHealth(bool ok, std::wstring const& message) {
-  HealthDot().Fill(DotBrush(winrt::Windows::UI::Color{
-      0xFF, ok ? 0x2E : 0xE4, ok ? 0xB4 : 0x3C, ok ? 0x48 : 0x3C}));
+  HealthDot().Fill(HealthBrush(ok));
   HealthText().Text(hstring(message));
 }
 
@@ -454,13 +476,13 @@ void MainWindow::UpsertTransfer(rivet_app::Transfer const& transfer) {
     items_.emplace(id, projected);
     auto const rows =
         transfers_list_.ItemsSource()
-            .as<Windows::Foundation::Collections::IObservableVector<
-                winrt::RivetHost::TransferItem>>();
+            .as<IObservableVector<winrt::RivetHost::TransferItem>>();
     rows.Append(projected);
 
     if (transfer.direction == rivet_app::Direction::receive &&
-        transfer.status == rivet_app::TransferStatus::received && tray_ != nullptr) {
-      tray_->Notify(tr_wide("notify.received-title"),
+        transfer.status == rivet_app::TransferStatus::received &&
+        tray_ != nullptr) {
+      tray_->Notify(std::wstring{tr_hstring("notify.received-title")},
                     std::wstring{winrt::to_hstring(transfer.filename)});
     }
   } else {
@@ -475,34 +497,33 @@ void MainWindow::UpdateEmptyState() {
   auto const empty = items_.empty();
   EmptyState().Visibility(empty ? Visibility::Visible : Visibility::Collapsed);
   TransfersTitle().Visibility(empty ? Visibility::Collapsed : Visibility::Visible);
-  ClearHistoryButton().Visibility(empty ? Visibility::Collapsed
-                                        : Visibility::Visible);
+  ClearHistoryButton().Visibility(empty ? Visibility::Collapsed : Visibility::Visible);
 }
 
 winrt::fire_and_forget MainWindow::SendPathsAsync(
     std::vector<std::wstring> paths) {
   auto const backend = backend_;
   if (backend == nullptr || !backend->running()) {
-    ShowError(tr_wide("error.backend-not-ready"));
+    ShowError(tr_hstring("error.backend-not-ready"));
     co_return;
   }
 
   auto const weak = get_weak();
   co_await winrt::resume_background();
-  std::vector<std::wstring> failures;
+  std::vector<hstring> failures;
   for (auto const& path : paths) {
     try {
       rivet_app::API api(*backend);
       (void)api.send_file(winrt::to_string(path)).get();
     } catch (std::exception const& e) {
-      failures.push_back(std::wstring{winrt::to_hstring(e.what())});
+      failures.push_back(winrt::to_hstring(e.what()));
     }
   }
   if (auto window = weak.get()) {
     window->DispatcherQueue().TryEnqueue(
         [weak, failures = std::move(failures)] {
           if (auto current = weak.get(); !failures.empty()) {
-            std::wstring message = tr_wide("error.send") + L"\n" + failures.front();
+            hstring message = tr_hstring("error.send") + L"\n" + failures.front();
             current->ShowError(message);
           }
         });
@@ -512,7 +533,7 @@ winrt::fire_and_forget MainWindow::SendPathsAsync(
 void MainWindow::ShowSettingsDialog() {
   auto const backend = backend_;
   if (backend == nullptr || !backend->running()) {
-    ShowError(tr_wide("error.backend-not-ready"));
+    ShowError(tr_hstring("error.backend-not-ready"));
     return;
   }
 
@@ -527,11 +548,15 @@ void MainWindow::ShowSettingsDialog() {
 
   auto const weak = get_weak();
 
-  Controls::TextBox relay_box;
-  Controls::TextBox download_box;
-  Controls::ToggleSwitch autostart_toggle;
-  Controls::Button relay_browse;
-  Controls::Button download_browse;
+  // The dialog must outlive ShowAsync; keep it in a member until it closes.
+  auto dialog = ContentDialog();
+  settings_dialog_ = dialog;
+
+  TextBox relay_box;
+  TextBox download_box;
+  ToggleSwitch autostart_toggle;
+  Button relay_browse;
+  Button download_browse;
 
   relay_box.Text(hstring{winrt::to_hstring(settings.relay_dir)});
   download_box.Text(hstring{winrt::to_hstring(settings.download_dir)});
@@ -542,14 +567,14 @@ void MainWindow::ShowSettingsDialog() {
   relay_browse.Content(box_value(hstring(L"…")));
   download_browse.Content(box_value(hstring(L"…")));
 
-  auto make_row = [](hstring const& label, Controls::TextBox const& box,
-                     Controls::Button const& browse) {
-    auto caption = Controls::TextBlock();
+  auto make_row = [](hstring const& label, TextBox const& box,
+                     Button const& browse) {
+    auto caption = TextBlock();
     caption.Text(label);
     caption.FontSize(12);
     caption.Opacity(0.75);
 
-    auto row = Controls::Grid();
+    auto row = Grid();
     auto col0 = ColumnDefinition();
     col0.Width(GridLengthHelper::FromValueAndStar(1.0, 1.0));
     auto col1 = ColumnDefinition();
@@ -562,25 +587,25 @@ void MainWindow::ShowSettingsDialog() {
     row.Children().Append(box);
     row.Children().Append(browse);
 
-    auto stack = Controls::StackPanel();
+    auto stack = StackPanel();
     stack.Spacing(6);
     stack.Children().Append(caption);
     stack.Children().Append(row);
     return stack;
   };
 
-  auto content = Controls::StackPanel();
+  auto content = StackPanel();
   content.Spacing(16);
-  content.Children().Append(make_row(hstring(tr_wide("settings.relay-label")),
+  content.Children().Append(make_row(tr_hstring("settings.relay-label"),
                                      relay_box, relay_browse));
-  content.Children().Append(make_row(hstring(tr_wide("settings.download-label")),
+  content.Children().Append(make_row(tr_hstring("settings.download-label"),
                                      download_box, download_browse));
   {
-    auto caption = Controls::TextBlock();
-    caption.Text(hstring(tr_wide("settings.autostart")));
+    auto caption = TextBlock();
+    caption.Text(tr_hstring("settings.autostart"));
     caption.VerticalAlignment(VerticalAlignment::Center);
 
-    auto autostart_row = Controls::StackPanel();
+    auto autostart_row = StackPanel();
     autostart_row.Orientation(Orientation::Horizontal);
     autostart_row.Spacing(8);
     autostart_row.Children().Append(caption);
@@ -588,9 +613,9 @@ void MainWindow::ShowSettingsDialog() {
     content.Children().Append(autostart_row);
   }
 
-  auto browse_folder = [weak](Controls::TextBox box) -> winrt::fire_and_forget {
+  auto browse_folder = [weak](TextBox box) -> winrt::fire_and_forget {
     try {
-      Windows::Storage::Pickers::FolderPicker picker;
+      FolderPicker picker;
       picker.FileTypeFilter().Append(L"*");
       BindPickerToWindow(picker, weak.get()->WindowHandle());
       auto const folder = co_await picker.PickSingleFolderAsync();
@@ -613,18 +638,21 @@ void MainWindow::ShowSettingsDialog() {
     }
   });
 
-  Controls::ContentDialog dialog;
-  dialog.Title(box_value(hstring(tr_wide("settings.title"))));
+  dialog.Title(box_value(tr_hstring("settings.title")));
   dialog.Content(content);
-  dialog.PrimaryButtonText(tr_wide("settings.save"));
-  dialog.CloseButtonText(tr_wide("settings.cancel"));
-  dialog.DefaultButton(Controls::ContentDialogButton::Primary);
+  dialog.PrimaryButtonText(tr_hstring("settings.save"));
+  dialog.CloseButtonText(tr_hstring("settings.cancel"));
+  dialog.DefaultButton(ContentDialogButton::Primary);
   dialog.XamlRoot(Content().XamlRoot());
 
-  dialog.Closed([weak, backend, relay_box, download_box, autostart_toggle](
-                    auto const& sender, auto const&) {
-    if (sender.as<Controls::ContentDialog>().Result() !=
-        Controls::ContentDialogResult::Primary) {
+  dialog.Closed([weak, weak_dialog = dialog.get_weak(), backend, relay_box,
+                 download_box, autostart_toggle](auto const&, auto const&) {
+    if (auto window = weak.get()) {
+      window->settings_dialog_ = nullptr;
+    }
+    auto const closed = weak_dialog.get();
+    if (closed == nullptr ||
+        closed.Result() != ContentDialogResult::Primary) {
       return;
     }
     try {
@@ -636,7 +664,7 @@ void MainWindow::ShowSettingsDialog() {
     } catch (std::exception const& e) {
       if (auto window = weak.get()) {
         window->DispatcherQueue().TryEnqueue(
-            [weak, message = std::wstring{winrt::to_hstring(e.what())}] {
+            [weak, message = winrt::to_hstring(e.what())] {
               if (auto current = weak.get()) {
                 current->ShowError(message);
               }
@@ -663,11 +691,11 @@ void MainWindow::DropZone_Tapped(
       if (window == nullptr) co_return;
       auto const backend = window->backend_;
       if (backend == nullptr || !backend->running()) {
-        window->ShowError(tr_wide("error.backend-not-ready"));
+        window->ShowError(tr_hstring("error.backend-not-ready"));
         co_return;
       }
-      Windows::Storage::Pickers::FileOpenPicker picker;
-      picker.ViewMode(Windows::Storage::Pickers::PickerViewMode::List);
+      FileOpenPicker picker;
+      picker.ViewMode(PickerViewMode::List);
       picker.FileTypeFilter().Append(L"*");
       BindPickerToWindow(picker, window->WindowHandle());
       auto const files = co_await picker.PickMultipleFilesAsync();
