@@ -20,6 +20,25 @@
 
 两台电脑用同一域账号即可，工具按「机器名」区分收发，互不干扰。
 
+## 分发（GitHub Releases，参考 Taskly 家族约定）
+
+发布完全由 CI 完成——**本机无需 MSVC 工具链**（CI runner 自带）：
+
+1. 把版本号写进 `rivet.rktd`（同时重新 `raco rivet schema --output rivet-schema.json` 无需变动则跳过），CHANGELOG.md 加 `## [X.Y.Z]` 段，提交推送。
+2. 打 annotated tag 并推送，CI 自动完成其余一切：
+
+   ```bash
+   git tag -a v0.1.0 -m "Shuttle 0.1.0" && git push origin v0.1.0
+   ```
+
+3. Release 产物（家族命名约定，与 Taskly 一致）：
+   - `shuttle-X.Y.Z-windows-x64.msi` / `shuttle-X.Y.Z-windows-x64.zip`（便携版），各带 `.sha256` 边车，汇总 `SHA256SUMS`；
+   - 无版本号稳定别名 `shuttle-windows-x64.msi` / `shuttle-windows-x64.zip`，直链固定为 `releases/latest/download/<别名>`；
+   - SBOM 与第三方声明留在 CI artifact，不上 release（避免边车与正文脱节）。
+4. 两台电脑各装一次 MSI（或解压便携版）即完成部署；更新时下载新 MSI 重装即可（未接应用内自动更新，属有意裁剪）。
+
+工作流：`.github/workflows/ci.yml`（push 即跑 acceptance：schema 契约门 + WinUI 全量原生构建）、`.github/workflows/release.yml`（tag 触发）。rivet 以 pin 引用（`RIVET_PIN` 单一真源）。`scripts/check-release-version.sh` 是发布预检：tag 必须带注解且与 `rivet.rktd`、生成客户端内嵌版本三方一致。
+
 ## 从源码构建
 
 前置：

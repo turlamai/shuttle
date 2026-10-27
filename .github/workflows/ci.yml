@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Single source of truth for the rivet pin: release builds pin, local
+# development tracks the linked checkout.
+env:
+  RIVET_PIN: 9de6f5a76991bf30f0e2b5890856e62a8493ad29
+
+jobs:
+  windows:
+    name: Windows (x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Racket CS
+        uses: Bogdanp/setup-racket@v1.15
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: '9.3'
+      - name: Install Rivet (pinned, with keel below the tests/documentation collision)
+        shell: pwsh
+        run: |
+          raco pkg install --auto --no-docs 'https://github.com/turinglambdaai/keel.git#76a5b9fdd01bde284d310ff5c05ec73972f64201'
+          raco pkg install --auto --no-docs 'https://github.com/turinglambdaai/rivet.git#${{ env.RIVET_PIN }}'
+      # Schema-contract gate + full WinUI 3 native build. The runner's
+      # MSVC toolchain is the release compiler; local machines without
+      # Build Tools stay green through this job.
+      - name: Acceptance (schema contract + native build)
+        run: raco rivet acceptance --json
+      - name: Backend engine tests (pure units)
+        run: raco test app/backend.rkt
