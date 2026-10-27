@@ -3,6 +3,7 @@
 #include "pch.h"
 #include "TransferItem.h"
 #include "MainWindow.g.h"
+#include "GeneratedBackend.hpp"
 #include "system_services.hpp"
 #include "winui_window.hpp"
 

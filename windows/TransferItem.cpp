@@ -82,15 +82,15 @@ void TransferItem::Apply(std::int32_t direction, hstring const& filename,
   }
 
   if (changed_status || changed_direction) {
-    wchar_t const* key = L"status.queued";
+    char const* key = "status.queued";
     switch (status) {
       case 1:
-        key = (direction == 0) ? L"status.active-sending"
-                               : L"status.active-receiving";
+        key = (direction == 0) ? "status.active-sending"
+                               : "status.active-receiving";
         break;
-      case 2: key = L"status.sent"; break;
-      case 3: key = L"status.received"; break;
-      case 4: key = L"status.failed"; break;
+      case 2: key = "status.sent"; break;
+      case 3: key = "status.received"; break;
+      case 4: key = "status.failed"; break;
       default: break;
     }
     status_text_ = tr_hstring(key);

@@ -142,18 +142,13 @@ Media::SolidColorBrush AccentBrush() {
   return brush;
 }
 
-// The active fill is a solid accent tint; the rest fill is the XAML
-// resource on the window's root grid, resolved through the window.
+// The active drag state is a plain accent tint; the rest fill is the
+// XAML resource on the window's root grid, resolved by the caller
+// through the window (the resource moved off Application resources).
 Media::SolidColorBrush AccentFillBrush() {
   Media::SolidColorBrush brush{
       winrt::Windows::UI::Color{0x1A, 0x00, 0x78, 0xD4}};
   return brush;
-}
-
-Media::Brush RestFillBrush(winrt::RivetHost::implementation::MainWindow* window) {
-  return window->root_grid_.Resources()
-      .Lookup(box_value(hstring(L"DropZoneFill")))
-      .as<Media::Brush>();
 }
 
 Media::SolidColorBrush HealthBrush(bool ok) {
@@ -251,28 +246,37 @@ void MainWindow::SetupLocalization() {
   });
 
   DropZone().DragOver([weak = get_weak()](IInspectable const& sender,
-                                          DataTransfer::DragEventArgs const&
-                                              args) {
-    args.AcceptedOperation(DataPackageOperation::Copy);
+                                          DragEventArgs const& args) {
+    args.AcceptedOperation(DataTransfer::DataPackageOperation::Copy);
     sender.as<Border>().Background(AccentFillBrush());
     sender.as<Border>().BorderBrush(AccentBrush());
   });
 
   DropZone().DragLeave([weak = get_weak()](IInspectable const& sender,
-                                           DataTransfer::DragEventArgs const&) {
-    if (auto window = weak.get()) {
-      sender.as<Border>().Background(RestFillBrush(window));
-      sender.as<Border>().BorderBrush(nullptr);
-    }
+                                           DragEventArgs const&) {
+    auto window = weak.get();
+    if (window == nullptr) return;
+    sender.as<Border>().Background(
+        window->root_grid_.Resources()
+            .Lookup(box_value(hstring(L"DropZoneFill")))
+            .as<Media::Brush>());
+    sender.as<Border>().BorderBrush(nullptr);
   });
 
   DropZone().Drop([weak = get_weak()](IInspectable const& sender,
-                                      DataTransfer::DragEventArgs const& args) {
-    if (auto window = weak.get()) {
-      sender.as<Border>().Background(RestFillBrush(window));
-      sender.as<Border>().BorderBrush(nullptr);
+                                      DragEventArgs const& args) {
+    {
+      auto window = weak.get();
+      if (window != nullptr) {
+        sender.as<Border>().Background(
+            window->root_grid_.Resources()
+                .Lookup(box_value(hstring(L"DropZoneFill")))
+                .as<Media::Brush>());
+        sender.as<Border>().BorderBrush(nullptr);
+      }
     }
-    if (!args.DataView().Contains(StandardDataFormats::StorageItems())) {
+    if (!args.DataView().Contains(
+            DataTransfer::StandardDataFormats::StorageItems())) {
       return;
     }
     auto const operation = args.DataView().GetStorageItemsAsync();
@@ -396,7 +400,8 @@ winrt::fire_and_forget MainWindow::InitializeBackendAsync() {
                             if (auto window = weak.get()) {
                               window->ApplyRelayHealth(
                                   health.ok,
-                                  winrt::to_hstring(health.message));
+                                  std::wstring{
+                                      winrt::to_hstring(health.message)});
                             }
                           });
                     }
@@ -576,9 +581,9 @@ void MainWindow::ShowSettingsDialog() {
 
     auto row = Grid();
     auto col0 = ColumnDefinition();
-    col0.Width(GridLengthHelper::FromValueAndStar(1.0, 1.0));
+    col0.Width(GridLength{1.0, GridUnitType::Star});
     auto col1 = ColumnDefinition();
-    col1.Width(GridLengthHelper::Auto());
+    col1.Width(GridLength{0.0, GridUnitType::Auto});
     row.ColumnDefinitions().Append(col0);
     row.ColumnDefinitions().Append(col1);
     row.SetColumn(box, 0);
@@ -645,14 +650,13 @@ void MainWindow::ShowSettingsDialog() {
   dialog.DefaultButton(ContentDialogButton::Primary);
   dialog.XamlRoot(Content().XamlRoot());
 
-  dialog.Closed([weak, weak_dialog = dialog.get_weak(), backend, relay_box,
-                 download_box, autostart_toggle](auto const&, auto const&) {
+  dialog.Closed([weak, backend, relay_box, download_box, autostart_toggle](
+                    ContentDialog const& sender,
+                    ContentDialogClosedEventArgs const&) {
     if (auto window = weak.get()) {
       window->settings_dialog_ = nullptr;
     }
-    auto const closed = weak_dialog.get();
-    if (closed == nullptr ||
-        closed.Result() != ContentDialogResult::Primary) {
+    if (sender.Result() != ContentDialogResult::Primary) {
       return;
     }
     try {
