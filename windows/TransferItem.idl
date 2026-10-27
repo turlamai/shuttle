@@ -1,0 +1,23 @@
+namespace RivetHost
+{
+    [bindable]
+    [default_interface]
+    runtimeclass TransferItem : Microsoft.UI.Xaml.Data.INotifyPropertyChanged
+    {
+        TransferItem();
+
+        // Bulk refresh from a backend Transfer snapshot; fires one
+        // PropertyChanged per changed property.
+        void Apply(Int32 direction, String filename, Int64 size, Int64 progress,
+                   Int32 status, String message, String stamp);
+
+        String Id { get; };
+        String Filename { get; };
+        String DirectionGlyph { get; };
+        String MessageText { get; };
+        String StatusText { get; };
+        String SizeStampText { get; };
+        Double Progress { get; };
+        Microsoft.UI.Xaml.Visibility ProgressVisibility { get; };
+    }
+}

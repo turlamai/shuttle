@@ -10,3 +10,4 @@ macos-host/.build/
 compiled/
 *.zo
 raco-obj/
+macos-host/GeneratedI18n.swift

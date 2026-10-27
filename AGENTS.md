@@ -1,6 +1,8 @@
-# Rivet agent contract
+# Shuttle agent contract
 
-Human-first. Agent-native. Local by design.
+Shuttle is a **Windows-only** Rivet application: two company PCs exchange
+files through a mailbox folder on the department share (`Z:`). The macOS and
+Linux host directories were intentionally removed; do not recreate them.
 
 ## Start every task here
 
@@ -9,54 +11,37 @@ raco rivet inspect --json
 raco rivet doctor --json
 ```
 
-`inspect` is the machine-readable project map. It identifies the shared Racket
-backend, each native UI edit point, platform maturity, generated directories,
-and safe lifecycle commands. `doctor` reports the exact local toolchain and
-returns a failing exit status when the current host is not usable.
+`inspect` is the machine-readable project map. `doctor` reports the local
+toolchain (MSVC Build Tools + Windows SDK are required for the WinUI 3 host)
+and returns a failing exit status when the current host is not usable.
 
-Before editing an existing repository, inspect `git status`, fetch its tracked
-remote, and update with fast-forward-only semantics. If the worktree is dirty,
-the branch has diverged, or the remote is unavailable, stop and report that
-state; never hide it with stash, reset, or generated-file cleanup.
+Before editing, check `git status`. If the worktree is dirty, the branch has
+diverged, or the remote is unavailable, stop and report that state; never hide
+it with stash, reset, or generated-file cleanup.
 
 ## Architecture boundary
 
-- Keep shared application and domain logic in `app/backend.rkt`.
-- Keep Windows UI native in WinUI 3 / C++/WinRT under `windows/`.
-- Keep macOS UI native in SwiftUI/AppKit under `macos-host/`.
-- Keep Linux UI native in GTK4 under `linux/`.
+- All product logic (mailbox protocol, icacls self-heal, polling, config,
+  history) lives in `app/backend.rkt`. The backend is the single source of
+  truth; native hosts only present and forward OS integration.
+- Windows UI is native WinUI 3 / C++/WinRT under `windows/`: presentation,
+  drag-drop, tray, toasts, autostart registry, pickers.
 - Do not introduce a cross-platform UI DSL or bypass RVT1 with an ad-hoc IPC.
-- iOS/iPadOS/watchOS and Android are foundation targets until their
-  generated app, embedding, packaging, signing, and device workflows exist.
+- Relay mailbox protocol invariants (do not break without bumping the
+  protocol): manifest.json is written FIRST for crash attribution, payload is
+  copied as `payload.part` then renamed, `shuttle.done` is written LAST;
+  receivers only act on folders with `.done`; only folders whose manifest
+  names the local machine as sender are ever deleted by the sweep.
 
-## Capability sourcing
+## Share permission model (do not "fix" these away)
 
-When a feature is not already present, do not reject Racket or add another
-runtime by reflex. Read `capability-sourcing` from `inspect --json`, then choose
-the narrowest boundary that fits:
-
-1. Prefer a Racket built-in or maintained package. Discover candidates with
-   `raco docs <term>`, `raco pkg show`, and
-   `raco pkg catalog-show --all --only-names`; inspect a candidate with
-   `raco pkg catalog-show --modules <package>`.
-2. Put UI, lifecycle, accessibility, notification, device, and other
-   platform-owned behavior in the first-party native host.
-3. Use FFI for a stable C ABI that needs frequent, low-latency in-process
-   calls. Hide `ffi/unsafe` behind a small safe module with explicit ownership,
-   callback, thread, ABI, and native-library packaging rules.
-4. Use `subprocess` or `system*` for a mature executable doing coarse-grained
-   work. Pass an executable and argv directly; never construct a shell command.
-   Add a version probe, timeout, bounded/concurrently drained output, exit-code
-   handling, cancellation, packaging, and license checks.
-5. Use a sidecar only for a persistent runtime, streaming workload, unstable
-   ABI, or required crash isolation. Own authentication, protocol versioning,
-   resource limits, restart/shutdown, packaging, and offline behavior.
-6. Implement the capability only when it is small or security-critical and
-   owning it is cheaper than owning the dependency boundary.
-
-For every choice, verify Racket 9.0 CS support, license/redistribution terms,
-all target OS/architectures, upstream maintenance, reproducible installation,
-failure behavior, packaged dependency closure, and a clean-machine smoke test.
+- The department share gives Domain Users create-but-not-delete on public
+  folders. Shuttle's countermeasure is self-healing: right after creating a
+  transfer folder, the backend grants itself `(OI)(CI)F` via icacls (never
+  `/t` — server-side inheritance covers the whole subtree).
+- Deletion on the share is permanent (no recycle bin). Receivers delete the
+  remote folder only after the local copy is fully written and size-verified.
+- Test against a dedicated `.shuttle-selftest` mailbox, never the real one.
 
 ## Ownership
 
@@ -64,8 +49,7 @@ Source you may edit:
 
 - `app/`
 - `windows/`
-- `macos-host/`
-- `linux/`
+- `shared/i18n/`
 - `rivet.rktd`
 - `rivet-schema.json` when an API compatibility break is intentional
 - `rivet-acceptance.rktd` when product acceptance requirements change
@@ -73,20 +57,14 @@ Source you may edit:
 
 Generated output you should not hand-edit:
 
-- `windows/GeneratedBackend.hpp`
-- `macos-host/Sources/RivetHost/GeneratedBackend.swift`
-- `linux/GeneratedBackend.hpp`
-- `.rivet/`
-- `build/`
-- `dist/`
-- `windows/Generated Files/`
-- `windows/obj/`
-- `windows/RivetHost/`
-- `macos-host/.build/`
+- `windows/GeneratedBackend.hpp` (kept compiling between builds; the real
+  build regenerates it)
+- `windows/GeneratedI18n.hpp`
+- `.rivet/`, `build/`, `dist/`
+- `windows/Generated Files/`, `windows/obj/`, `windows/RivetHost/`
 
-`raco rivet build` regenerates the typed clients. Use `raco rivet clean` to
-remove transient build output while keeping the generated client sources that
-make the native API reviewable.
+`raco rivet i18n` also rewrites `macos-host/GeneratedI18n.swift` even though
+the directory does not exist for this product; that path is gitignored.
 
 ## Verification loop
 
@@ -97,42 +75,36 @@ Refresh it only after deliberately changing the public backend schema:
 raco rivet schema --output rivet-schema.json
 ```
 
-Before accepting later API changes, run the compatibility gate. Adding a new
-RPC, Event, State, Record, or Enum type is compatible; removing one or changing
-a type, argument order, result, Record field/order, or an existing Enum's
-cases/order is breaking:
+Compatibility gate before accepting later API changes (adding types is
+compatible; removing or reordering is breaking):
 
 ```bash
 raco rivet schema check rivet-schema.json --json
 ```
 
+Backend engine tests (pure units + full mailbox chain against the real
+share, peer identity simulated):
+
+```bash
+raco test app/backend.rkt
+racket -e '(require (submod "app/backend.rkt" test)) (test-main)'
+```
+
 `rivet-acceptance.rktd` is the source-controlled completion contract. Add a
-suite for every behavior a change claims, keep native UI drivers native to the
-platform, and never weaken requirements or expected evidence merely to make a
-change green. Run the current platform's required suites with:
+suite for every behavior a change claims, and never weaken requirements merely
+to make a change green. Run the required suites with:
 
 ```bash
 raco rivet acceptance --json
 ```
 
-Do not call work complete when a required suite was skipped, was not run on its
-declared platform, timed out, or exercised only a development substitute for
-the packaged artifact named by the product contract.
-
 ```bash
-raco rivet build
-raco rivet dev
-raco rivet package
-raco rivet verify
+raco rivet build    # compile backend, regenerate clients, build WinUI host
+raco rivet dev      # build + launch
+raco rivet package  # distributable
 ```
 
-Pull-request CI must run `raco rivet build` for the Windows, macOS, and Linux
-hosts on the same runner image classes used for release. A release job must not
-be the first place native source is compiled. Follow Rivet's native-host CI
-guide: https://github.com/turinglambdaai/rivet/blob/main/docs/ci.md
-
 After changing RPC, Event, State, Record, or Enum declarations, run the
-compatibility gate and rebuild before editing code that consumes generated native APIs.
-Update the baseline only when a breaking change is intentional and governed by
-the application's release policy. Preserve the first `rivet: error:` line and
-nearby compiler output when diagnosing a failure.
+compatibility gate and rebuild before editing code that consumes generated
+native APIs. Preserve the first `rivet: error:` line and nearby compiler
+output when diagnosing a failure.

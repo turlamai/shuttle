@@ -5,6 +5,11 @@
 #include "system_services.hpp"
 #include "winui_window.hpp"
 
+#include <map>
+#include <memory>
+#include <string>
+#include <vector>
+
 namespace winrt::RivetHost::implementation {
 
 struct MainWindow : MainWindowT<MainWindow> {
@@ -20,17 +25,42 @@ struct MainWindow : MainWindowT<MainWindow> {
   // the console-control shutdown hook (logoff/CTRL events).
   void StopBackendOrderly();
 
-  void Increment_Click(winrt::Windows::Foundation::IInspectable const& sender,
-                       Microsoft::UI::Xaml::RoutedEventArgs const& args);
+  void DropZone_Tapped(winrt::Windows::Foundation::IInspectable const& sender,
+                       winrt::Microsoft::UI::Xaml::Input::TappedRoutedEventArgs const& args);
 
  private:
   winrt::fire_and_forget InitializeBackendAsync();
-  void IncrementAsync();
-  void SetReadyUi();
   void SetErrorUi(std::string const& message);
 
+  void SetupLocalization();
+  void SetupWindowBehavior();
+  void SetupTray();
+  void ApplyRelayHealth(bool ok, std::wstring const& message);
+  void UpsertTransfer(rivet_app::Transfer const& transfer);
+  void UpdateEmptyState();
+  void SendPathsAsync(std::vector<std::wstring> paths);
+  void ShowError(std::wstring const& message);
+  void ShowSettingsDialog();
+
   std::shared_ptr<rivet::windows::Backend> backend_;
-  std::atomic<std::int64_t> count_{0};
+  std::unique_ptr<rivet::system::TrayController> tray_;
+
+  winrt::Microsoft::UI::Xaml::Controls::InfoBar error_bar_{nullptr};
+  winrt::Microsoft::UI::Xaml::Controls::ListView transfers_list_{nullptr};
+  winrt::Microsoft::UI::Xaml::Controls::TextBlock empty_state_{nullptr};
+  winrt::Microsoft::UI::Xaml::Controls::TextBlock caption_machine_{nullptr};
+  winrt::Microsoft::UI::Xaml::Controls::TextBlock health_text_{nullptr};
+  winrt::Microsoft::UI::Xaml::Shapes::Ellipse health_dot_{nullptr};
+  winrt::Microsoft::UI::Xaml::Controls::Border drop_zone_{nullptr};
+  winrt::Microsoft::UI::Xaml::Media::Brush drop_zone_fill_{nullptr};
+  winrt::Microsoft::UI::Xaml::Media::Brush drop_zone_fill_active_{nullptr};
+
+  std::map<std::wstring, winrt::RivetHost::TransferItem, std::less<>> items_;
+
+  // Window lifecycle: closing hides to tray; a real exit comes from the
+  // tray menu and sets exit_requested_ before closing again.
+  bool exit_requested_ = false;
+  bool tray_available_ = false;
 };
 
 }  // namespace winrt::RivetHost::implementation

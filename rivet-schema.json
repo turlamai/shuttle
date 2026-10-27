@@ -1,37 +1,52 @@
 {
   "device-rpcs": [],
-  "enums": [],
+  "enums": [
+    {
+      "cases": [
+        "send",
+        "receive"
+      ],
+      "name": "Direction"
+    },
+    {
+      "cases": [
+        "queued",
+        "active",
+        "sent",
+        "received",
+        "failed"
+      ],
+      "name": "TransferStatus"
+    }
+  ],
   "events": [
     {
-      "name": "notification",
+      "name": "relay-status",
       "type": {
-        "kind": "scalar",
-        "name": "String"
+        "kind": "record",
+        "name": "RelayHealth"
+      }
+    },
+    {
+      "name": "transfer-changed",
+      "type": {
+        "kind": "record",
+        "name": "Transfer"
       }
     }
   ],
   "format": "rivet-schema",
   "format-version": 1,
-  "records": [],
-  "rpcs": [
+  "records": [
     {
-      "arguments": [
+      "fields": [
         {
-          "name": "name",
+          "name": "ok",
           "type": {
             "kind": "scalar",
-            "name": "String"
+            "name": "Bool"
           }
-        }
-      ],
-      "name": "greet",
-      "result": {
-        "kind": "scalar",
-        "name": "String"
-      }
-    },
-    {
-      "arguments": [
+        },
         {
           "name": "message",
           "type": {
@@ -40,21 +55,172 @@
           }
         }
       ],
-      "name": "notify",
+      "name": "RelayHealth"
+    },
+    {
+      "fields": [
+        {
+          "name": "relay-dir",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "download-dir",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "machine",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        }
+      ],
+      "name": "Settings"
+    },
+    {
+      "fields": [
+        {
+          "name": "id",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "direction",
+          "type": {
+            "kind": "record",
+            "name": "Direction"
+          }
+        },
+        {
+          "name": "filename",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "size",
+          "type": {
+            "kind": "scalar",
+            "name": "Int64"
+          }
+        },
+        {
+          "name": "progress",
+          "type": {
+            "kind": "scalar",
+            "name": "Int64"
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "kind": "record",
+            "name": "TransferStatus"
+          }
+        },
+        {
+          "name": "message",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "stamp",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        }
+      ],
+      "name": "Transfer"
+    }
+  ],
+  "rpcs": [
+    {
+      "arguments": [],
+      "name": "clear-history",
       "result": {
         "kind": "scalar",
         "name": "Void"
       }
+    },
+    {
+      "arguments": [],
+      "name": "get-settings",
+      "result": {
+        "kind": "record",
+        "name": "Settings"
+      }
+    },
+    {
+      "arguments": [],
+      "name": "list-transfers",
+      "result": {
+        "element": {
+          "kind": "record",
+          "name": "Transfer"
+        },
+        "kind": "list"
+      }
+    },
+    {
+      "arguments": [],
+      "name": "ping",
+      "result": {
+        "kind": "scalar",
+        "name": "String"
+      }
+    },
+    {
+      "arguments": [
+        {
+          "name": "path",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        }
+      ],
+      "name": "send-file",
+      "result": {
+        "kind": "record",
+        "name": "Transfer"
+      }
+    },
+    {
+      "arguments": [
+        {
+          "name": "relay-dir",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "download-dir",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        }
+      ],
+      "name": "set-settings",
+      "result": {
+        "kind": "record",
+        "name": "Settings"
+      }
     }
   ],
   "rvt-protocol": 1,
-  "states": [
-    {
-      "name": "counter",
-      "type": {
-        "kind": "scalar",
-        "name": "Int64"
-      }
-    }
-  ]
+  "states": []
 }
