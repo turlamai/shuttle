@@ -1,18 +1,681 @@
 #lang racket/base
 
-(require rivet/backend)
+;; Shuttle backend — mailbox-style file relay between two Windows PCs
+;; over the department share. All product logic lives here; the native
+;; host only presents and forwards OS integration.
 
-(provide start)
+(require racket/format
+         racket/date
+         racket/file
+         racket/function
+         racket/list
+         racket/path
+         racket/string
+         racket/system
+         racket/async-channel
+         json
+         rivet/backend)
 
-(define-event notification : String)
-(define-state counter : Int64 0)
+(provide start
+         ;; test hooks (used by the rackunit submodule and self-tests)
+         init! do-send! receive-cycle! sweep-own-folders!
+         sanitize-filename unique-dest read-manifest
+         this-machine snapshot-transfers)
 
-(define-rpc (greet [name String] : String)
-  (format "Hello, ~a!" name))
+;; ---------------------------------------------------------------- contract
 
-(define-rpc (notify [message String] : Void)
-  (notification message)
+(define-enum Direction (send receive))
+(define-enum TransferStatus (queued active sent received failed))
+
+(define-record Transfer
+  ([id : String]
+   [direction : Direction]
+   [filename : String]
+   [size : Int64]
+   [progress : Int64]
+   [status : TransferStatus]
+   [message : String]
+   [stamp : String]))
+
+(define-record Settings
+  ([relay-dir : String]
+   [download-dir : String]
+   [machine : String]))
+
+(define-record RelayHealth
+  ([ok : Bool]
+   [message : String]))
+
+(define-event transfer-changed : Transfer)
+(define-event relay-status : RelayHealth)
+
+;; Background threads may emit before serve-fds installs the event
+;; emitter (the first poll races startup); dropping those events is
+;; correct — the host replays state via list-transfers on connect.
+;; Anything else still propagates.
+(define (emit-safe! emit)
+  (with-handlers ([exn:fail?
+                   (lambda (e)
+                     (unless (string-contains? (exn-message e)
+                                               "no Rivet server")
+                       (raise e)))])
+    (emit)))
+
+;; ---------------------------------------------------------------- state
+
+;; Every mutable box lives behind `state-lock`; entries are immutable
+;; hasheq snapshots so event emission never races a mutation.
+(define state-lock (make-semaphore 1))
+(define transfers-table (make-hash))     ; id -> entry hasheq
+(define consumed-ids (make-hash))        ; id -> #t; ids we must not re-process
+(define send-queue (make-async-channel))
+(define config (make-parameter #f))      ; hasheq with path-string fields
+(define config-dir-param (make-parameter #f))
+(define config-relay-ok-param (make-parameter 'unknown))
+(define ready? #f)
+
+;; Identity is the machine name; tests parameterize it to play the peer.
+(define this-machine
+  (make-parameter (or (getenv "COMPUTERNAME") "unknown-pc")))
+
+(define (grant-user)
+  (define domain (getenv "USERDOMAIN"))
+  (define user (getenv "USERNAME"))
+  (if (and domain user (not (string=? domain "")) (not (string=? user "")))
+      (string-append domain "\\" user)
+      #f))
+
+(define (config-dir) (config-dir-param))
+(define (config-relay-ok) (config-relay-ok-param))
+
+;; ---------------------------------------------------------------- small utils
+
+(define (pad2 n) (~r n #:min-width 2 #:pad-string "0"))
+
+(define (display-stamp [d (current-date)])
+  (format "~a-~a~a ~a:~a:~a"
+          (date-year d) (pad2 (date-month d)) (pad2 (date-day d))
+          (pad2 (date-hour d)) (pad2 (date-minute d)) (pad2 (date-second d))))
+
+(define (folder-stamp [d (current-date)])
+  (format "~a~a~a-~a~a~a"
+          (date-year d) (pad2 (date-month d)) (pad2 (date-day d))
+          (pad2 (date-hour d)) (pad2 (date-minute d)) (pad2 (date-second d))))
+
+(define (new-transfer-id)
+  (~r (random 4294967087) #:base 16 #:min-width 8 #:pad-string "0"))
+
+;; Strip directories and Windows-hostile characters; reject anything
+;; that could escape the download directory.
+(define (sanitize-filename name)
+  (define base (with-handlers ([exn:fail? (const #f)])
+                 (file-name-from-path (string->path (string-trim name)))))
+  (and base
+       (let* ([s (path->string base)]
+              [cleaned
+               (list->string
+                (for/list ([c (in-string s)])
+                  (if (or (char<? c #\space)
+                          (memv c '(#\< #\> #\: #\" #\/ #\\ #\| #\? #\*)))
+                      #\_ c)))]
+              [trimmed (string-trim cleaned)])
+         (and (not (member trimmed '("" "." "..")))
+              trimmed))))
+
+(define (split-extension name)
+  ;; path-get-extension returns the extension WITH the leading dot.
+  (define ext (path-get-extension (string->path name)))
+  (if ext
+      (values (substring name 0 (- (string-length name) (bytes-length ext)))
+              (bytes->string/utf-8 ext))
+      (values name "")))
+
+;; Never overwrite: first free "name", "name (2)", "name (3)" …
+(define (unique-dest dir name)
+  (define candidate (build-path dir name))
+  (if (not (file-exists? candidate))
+      candidate
+      (let-values ([(stem ext) (split-extension name)])
+        (let loop ([i 2])
+          (define p (build-path dir (format "~a (~a)~a" stem i ext)))
+          (if (file-exists? p) (loop (add1 i)) p)))))
+
+;; ---------------------------------------------------------------- persistence
+
+(define (config-file) (build-path (config-dir) "config.json"))
+(define (history-file) (build-path (config-dir) "history.jsonl"))
+(define (consumed-file) (build-path (config-dir) "consumed.jsonl"))
+
+(define default-relay-dir
+  (string->path "Z:\\19 汽车电子事业部\\研发部\\04_Software\\LiDAR\\.shuttle"))
+
+(define (default-download-dir)
+  (define profile (or (getenv "USERPROFILE")
+                      (path->string (find-system-path 'home-dir))))
+  (string->path (string-append profile "\\Downloads\\Shuttle")))
+
+(define (path->display p)
+  (if (path? p) (path->string p) (format "~a" p)))
+
+(define (load-or-create-config!)
+  (define dir (config-dir))
+  (make-directory* dir)
+  (define cfg
+    (or (with-handlers ([exn:fail? (const #f)])
+          (define j (call-with-input-file (config-file) read-json))
+          (and (hash? j)
+               (hash-has-key? j 'relay-dir)
+               (hash-has-key? j 'download-dir)
+               j))
+        (hasheq 'relay-dir (path->display default-relay-dir)
+                'download-dir (path->display (default-download-dir)))))
+  (config cfg)
+  (write-config! cfg))
+
+(define (write-config! cfg)
+  (call-with-output-file (config-file) #:exists 'truncate
+    (lambda (p) (write-json cfg p))))
+
+(define (load-consumed!)
+  (with-handlers ([exn:fail? void])
+    (call-with-input-file (consumed-file)
+      (lambda (p)
+        (for ([line (in-lines p)])
+          (define id (string-trim line))
+          (unless (string=? id "") (hash-set! consumed-ids id #t)))))))
+
+(define (mark-consumed! id)
+  (hash-set! consumed-ids id #t)
+  (with-handlers ([exn:fail? void])
+    (call-with-output-file (consumed-file) #:exists 'append
+      (lambda (p) (writeln id p)))))
+
+(define (append-history! entry)
+  (with-handlers ([exn:fail? void])
+    (call-with-output-file (history-file) #:exists 'append
+      (lambda (p) (write-json entry p) (newline p)))))
+
+(define (load-history!)
+  (with-handlers ([exn:fail? void])
+    (define lines
+      (call-with-input-file (history-file)
+        (lambda (p)
+          (for/list ([line (in-lines p)]
+                     #:when (non-empty-string? (string-trim line)))
+            (with-handlers ([exn:fail? (const #f)])
+              (read-json (open-input-string line)))))))
+    (for ([j (in-list lines)] #:when (hash? j))
+      (define id (hash-ref j 'id #f))
+      (when (string? id)
+        (hash-set! consumed-ids id #t)
+        (hash-set! transfers-table id j)))))
+
+;; ---------------------------------------------------------------- transfer table
+
+(define (make-entry! id direction filename size status message stamp)
+  (define entry
+    (hasheq 'id id 'direction direction 'filename filename
+            'size size 'progress 0 'status status
+            'message message 'stamp stamp))
+  (call-with-semaphore state-lock
+    (lambda () (hash-set! transfers-table id entry)))
+  (emit-safe! (lambda () (transfer-changed (entry->record entry))))
+  entry)
+
+(define (entry-status id status [message #f] [progress #f] [size #f])
+  (define entry
+    (call-with-semaphore state-lock
+      (lambda () (hash-ref transfers-table id #f))))
+  (when entry
+    (define next
+      (hash-set* entry
+                 'status status
+                 'message (or message (hash-ref entry 'message ""))
+                 'progress (or progress (hash-ref entry 'progress 0))
+                 'size (or size (hash-ref entry 'size 0))))
+    (call-with-semaphore state-lock
+      (lambda () (hash-set! transfers-table id next)))
+    (emit-safe! (lambda () (transfer-changed (entry->record next))))))
+
+(define (entry->record entry)
+  (Transfer (hash-ref entry 'id)
+            (Direction (hash-ref entry 'direction))
+            (hash-ref entry 'filename)
+            (hash-ref entry 'size)
+            (hash-ref entry 'progress)
+            (TransferStatus (hash-ref entry 'status))
+            (hash-ref entry 'message)
+            (hash-ref entry 'stamp)))
+
+(define (snapshot-transfers)
+  (call-with-semaphore state-lock
+    (lambda () (hash-values transfers-table))))
+
+;; ---------------------------------------------------------------- share operations
+
+;; Creator is owner and owners can always grant themselves more; the
+;; (OI)(CI) inheritance flags propagate full control over the whole
+;; subtree via the file server — never pass /t, that walks per file.
+(define (self-grant-full-control! dir)
+  (define user (grant-user))
+  (and user
+       (eq? 0
+            (with-handlers ([exn:fail? (const 1)])
+              (system*/exit-code
+               (build-path (find-system-path 'sys-dir) "icacls.exe")
+               dir "/grant" (string-append user ":(OI)(CI)F"))))))
+
+(define (delete-tree-with-retries! path [attempts 3])
+  (let loop ([n attempts])
+    (cond
+      [(not (directory-exists? path)) #t]
+      [(delete-directory/files path #:must-exist? #f) #t]
+      [(<= n 1) #f]
+      [else (sleep 0.5) (loop (sub1 n))])))
+
+;; Copy in 4 MiB chunks, emitting progress at most every 150 ms.
+(define (copy-with-progress! src dest id)
+  (define chunk (make-bytes (* 4 1024 1024)))
+  (define total (file-size src))
+  (define copied 0)
+  (define last-emit (current-inexact-milliseconds))
+  (call-with-output-file dest #:exists 'truncate
+    (lambda (out)
+      (call-with-input-file src
+        (lambda (in)
+          (let loop ()
+            (define n (read-bytes-avail! chunk in))
+            (unless (eof-object? n)
+              (write-bytes chunk out 0 n)
+              (set! copied (+ copied n))
+              (define now (current-inexact-milliseconds))
+              (when (>= (- now last-emit) 150)
+                (set! last-emit now)
+                (entry-status id 'active #f copied total))
+              (loop)))))))
+  (entry-status id 'active #f total total)
+  total)
+
+;; ---------------------------------------------------------------- mailbox format
+
+;; Subfolder: <yyyyMMdd-HHmmss>-<id8>/
+;;   manifest.json  (written first, so crashed sends stay attributable)
+;;   payload.part -> payload  (renamed after the full copy)
+;;   shuttle.done   (written last; receivers only act on folders with it)
+
+(define (mailbox-folder-name stamp id)
+  (string-append stamp "-" (substring id 0 (min 8 (string-length id)))))
+
+(define (write-manifest! dir sender filename size id stamp)
+  (call-with-output-file (build-path dir "manifest.json") #:exists 'truncate
+    (lambda (p)
+      (write-json (hasheq 'shuttle 1
+                          'sender sender
+                          'file filename
+                          'size size
+                          'id id
+                          'stamp stamp)
+                  p))))
+
+(define (read-manifest dir)
+  (with-handlers ([exn:fail? (const #f)])
+    (define j (call-with-input-file (build-path dir "manifest.json") read-json))
+    (and (hash? j) (equal? (hash-ref j 'shuttle #f) 1) j)))
+
+(define (write-done-marker! dir)
+  (call-with-output-file (build-path dir "shuttle.done") #:exists 'truncate void))
+
+(define (manifest-has-done? dir)
+  (file-exists? (build-path dir "shuttle.done")))
+
+;; ---------------------------------------------------------------- sending
+
+(define (do-send! id local-path)
+  (define relay (string->path (hash-ref (config) 'relay-dir)))
+  (define src (string->path local-path))
+  (define stamp (display-stamp))
+  (define entry (call-with-semaphore state-lock
+                  (lambda () (hash-ref transfers-table id #f))))
+  (define filename (hash-ref entry 'filename))
+  (define size (hash-ref entry 'size))
+
+  (define (fail! msg)
+    (entry-status id 'failed msg)
+    (append-history! (hasheq 'id id 'direction "send" 'file filename
+                             'size size 'ts stamp 'ok #f 'msg msg)))
+
+  (with-handlers ([exn:fail?
+                   (lambda (e) (fail! (format "发送失败：~a" (exn-message e))))])
+    (unless (file-exists? src)
+      (error 'shuttle "源文件不存在：~a" local-path))
+    (make-directory* relay)
+    (define folder (build-path relay (mailbox-folder-name (folder-stamp) id)))
+    (make-directory* folder)
+    (self-grant-full-control! folder)
+    ;; Manifest first: a crashed send still shows sender attribution for sweep.
+    (write-manifest! folder (this-machine) filename size id stamp)
+    (entry-status id 'active "复制到信箱中…")
+    (copy-with-progress! src (build-path folder "payload.part") id)
+    (rename-file-or-directory (build-path folder "payload.part")
+                              (build-path folder "payload"))
+    (write-done-marker! folder)
+    (entry-status id 'sent "已放入信箱，待另一台电脑接收")
+    (append-history! (hasheq 'id id 'direction "send" 'file filename
+                             'size size 'ts stamp 'ok #t 'msg "已发送"))))
+
+(define (sender-loop)
+  (let loop ()
+    (define id (async-channel-get send-queue))
+    (do-send! id)
+    (loop)))
+
+;; ---------------------------------------------------------------- receiving
+
+;; Emit only on change so the UI is not spammed each poll.
+(define (update-relay-health! ok message)
+  (define last-ok (config-relay-ok))
+  (unless (eq? ok last-ok)
+    (config-relay-ok-param ok)
+    (emit-safe! (lambda () (relay-status (RelayHealth ok message))))))
+
+;; #t paths keep everything absolute; relative paths would break on SMB.
+(define (relay-folders relay)
+  (with-handlers ([exn:fail? (const '())])
+    (sort (filter directory-exists? (directory-list relay #:build? #t))
+          string<? #:key path->string)))
+
+(define (receive-cycle!)
+  (define relay (string->path (hash-ref (config) 'relay-dir)))
+  (define downloads (string->path (hash-ref (config) 'download-dir)))
+
+  (cond
+    [(not (directory-exists? relay))
+     (with-handlers ([exn:fail? void]) (make-directory* relay))
+     (update-relay-health!
+      (directory-exists? relay)
+      "中转目录不可达，请检查共享盘映射（Z:）")]
+    [else
+     (update-relay-health! #t "信箱在线")
+     (with-handlers ([exn:fail? void]) (make-directory* downloads))
+     (for ([folder (in-list (relay-folders relay))])
+       (try-receive! folder downloads))]))
+
+(define (try-receive! folder downloads)
+  (define manifest (read-manifest folder))
+  (when (and manifest (manifest-has-done? folder))
+    (define id (hash-ref manifest 'id "unknown"))
+    (unless (hash-ref consumed-ids id #f)
+      (unless (string=? (hash-ref manifest 'sender "") (this-machine))
+        ;; Our own sends wait for the other PC; everything else is incoming.
+        (receive-folder! folder manifest id downloads)))))
+
+(define (receive-folder! folder manifest id downloads)
+  (define sender (hash-ref manifest 'sender "未知电脑"))
+  (define raw-name (hash-ref manifest 'file ""))
+  (define size (hash-ref manifest 'size 0))
+  (define stamp (display-stamp))
+
+  (let/ec bail
+    (define (finish! status message)
+      (entry-status id status message)
+      (mark-consumed! id)
+      (append-history! (hasheq 'id id 'direction "receive" 'file raw-name
+                               'size size 'ts stamp
+                               'ok (eq? status 'received)
+                               'msg message))
+      (bail (void)))
+
+    (define safe-name (sanitize-filename raw-name))
+    (unless (string? safe-name)
+      (finish! 'failed "清单中的文件名无效，已跳过"))
+    (unless (exact-nonnegative-integer? size)
+      (finish! 'failed "清单中的大小无效，已跳过"))
+
+    (make-entry! id 'receive safe-name size 'active "接收中…" stamp)
+    (with-handlers ([exn:fail?
+                     (lambda (e)
+                       (finish! 'failed (format "接收失败：~a" (exn-message e))))])
+      (define payload (build-path folder "payload"))
+      (unless (file-exists? payload)
+        (finish! 'failed "信箱中缺少文件内容，已跳过"))
+      (define dest (unique-dest downloads safe-name))
+      (define copied (copy-with-progress! payload dest id))
+      (unless (= copied size)
+        (with-handlers ([exn:fail? void]) (delete-file dest))
+        (finish! 'failed "大小校验不一致，已丢弃本地副本"))
+      ;; Permanent delete on the share — only after the local copy is
+      ;; fully written and verified.
+      (define removed (delete-tree-with-retries! folder))
+      (finish! 'received
+               (format "来自 ~a，已保存~a"
+                       sender
+                       (if removed "" "；信箱残留请手动清理"))))))
+
+;; Startup / hourly sweep: only folders whose manifest names THIS machine
+;; as sender are ever removed. The mailbox is a relay, not storage — the
+;; original file stays wherever the user sent it from.
+(define (sweep-own-folders! relay)
+  (define now-seconds (current-seconds))
+  (for ([folder (in-list (relay-folders relay))])
+    (define manifest (read-manifest folder))
+    (when (and manifest
+               (string=? (hash-ref manifest 'sender "") (this-machine)))
+      (define name (path->string folder))
+      (define m (regexp-match #rx"([0-9]{8})-([0-9]{6})-[0-9a-f]+$" name))
+      (when m
+        (define age-hours
+          (folder-age-hours (second m) (third m) now-seconds))
+        ;; A folder without .done is a crashed send — reclaim after a day.
+        ;; A completed send is kept a week for the other PC to pick up.
+        (define threshold (if (manifest-has-done? folder) (* 24 7) 24))
+        (when (>= age-hours threshold)
+          (delete-tree-with-retries! folder))))))
+
+(define (folder-age-hours ymd hms now-seconds)
+  (define then
+    (find-seconds (string->number (substring hms 4 6))
+                  (string->number (substring hms 2 4))
+                  (string->number (substring hms 0 2))
+                  (string->number (substring ymd 6 8))
+                  (string->number (substring ymd 4 6))
+                  (string->number (substring ymd 0 4))
+                  #f #f))
+  (/ (- now-seconds then) 3600.0))
+
+(define (receiver-loop)
+  (let loop ()
+    (with-handlers ([exn:fail? void])
+      (receive-cycle!))
+    (sleep 1.5)
+    (loop)))
+
+;; ---------------------------------------------------------------- RPC layer
+
+(define-rpc (ping : String)
+  (format "~a / shuttle ready" (this-machine)))
+
+(define-rpc (send-file [path : String] : Transfer)
+  (unless (file-exists? path)
+    (error 'shuttle "文件不存在：~a" path))
+  (when (directory-exists? path)
+    (error 'shuttle "暂不支持发送文件夹：~a" path))
+  (define base (file-name-from-path (string->path path)))
+  (define safe-name (or (sanitize-filename path)
+                        (and base (path->string base))))
+  (unless safe-name
+    (error 'shuttle "文件名无效：~a" path))
+  (define id (new-transfer-id))
+  (define stamp (display-stamp))
+  (define size (file-size path))
+  (define entry
+    (make-entry! id 'send safe-name size 'queued "排队中…" stamp))
+  (async-channel-put send-queue id)
+  entry)
+
+(define-rpc (list-transfers : (List Transfer))
+  (for/list ([entry (in-list
+                     (sort (snapshot-transfers) string>?
+                           #:key (lambda (e) (hash-ref e 'stamp))))])
+    (entry->record entry)))
+
+(define-rpc (clear-history : Void)
+  (call-with-semaphore state-lock
+    (lambda () (hash-clear! transfers-table)))
+  (with-handlers ([exn:fail? void])
+    (delete-file (history-file)))
   (void))
 
+(define-rpc (get-settings : Settings)
+  (settings-record))
+
+(define-rpc (set-settings [relay-dir : String] [download-dir : String] : Settings)
+  (define relay (string->path (string-trim relay-dir)))
+  (define downloads (string->path (string-trim download-dir)))
+  (with-handlers ([exn:fail?
+                   (lambda (e)
+                     (error 'shuttle "无法创建中转目录：~a" (exn-message e)))])
+    (make-directory* relay))
+  (with-handlers ([exn:fail?
+                   (lambda (e)
+                     (error 'shuttle "无法创建下载目录：~a" (exn-message e)))])
+    (make-directory* downloads))
+  (config (hasheq 'relay-dir (path->display relay)
+                  'download-dir (path->display downloads)))
+  (write-config! (config))
+  (config-relay-ok-param 'unknown) ; force a fresh health event on next poll
+  (settings-record))
+
+(define (settings-record)
+  (define cfg (config))
+  (Settings (hash-ref cfg 'relay-dir)
+            (hash-ref cfg 'download-dir)
+            (this-machine)))
+
+;; ---------------------------------------------------------------- lifecycle
+
+(define (init! #:config-dir [dir #f]
+               #:relay-dir [relay #f]
+               #:download-dir [downloads #f])
+  (unless ready?
+    (set! ready? #t)
+    (config-dir-param
+     (or dir
+         (let ([appdata (getenv "APPDATA")])
+           (if appdata
+               (build-path appdata "Shuttle")
+               (build-path (find-system-path 'home-dir) "Shuttle")))))
+    (load-or-create-config!)
+    (when relay
+      (config (hash-set* (config) 'relay-dir (path->display relay))))
+    (when downloads
+      (config (hash-set* (config) 'download-dir (path->display downloads))))
+    (load-consumed!)
+    (load-history!)))
+
+(define (start-threads!)
+  (thread sender-loop)
+  (thread receiver-loop)
+  (thread
+   (lambda ()
+     (let loop ()
+       (with-handlers ([exn:fail? void])
+         (sweep-own-folders! (string->path (hash-ref (config) 'relay-dir))))
+       (sleep (* 60 60))))))
+
 (define (start in-fd out-fd)
+  (init!)
+  (start-threads!)
   (serve-fds in-fd out-fd))
+
+;; ---------------------------------------------------------------- tests
+
+(module+ test
+  (require rackunit
+           racket/port
+           racket/string)
+  (provide test-main)
+
+  ;; --- pure helpers -----------------------------------------------
+  (test-case "sanitize-filename"
+    (check-equal? (sanitize-filename "报告.zip") "报告.zip")
+    (check-equal? (sanitize-filename "C:\\evil\\..\\x.txt") "x.txt")
+    (check-equal? (sanitize-filename "..") #f)
+    (check-equal? (sanitize-filename ".") #f)
+    (check-equal? (sanitize-filename "") #f)
+    (check-equal? (sanitize-filename "bad<>|name.bin") "bad___name.bin"))
+
+  (test-case "unique-dest"
+    (define tmp (make-temporary-file "shut~a" 'directory))
+    (define first-path (unique-dest tmp "a.bin"))
+    (check-false (file-exists? first-path))
+    (call-with-output-file first-path void #:exists 'truncate)
+    (check-equal? (path->string (file-name-from-path (unique-dest tmp "a.bin")))
+                  "a (2).bin")
+    (delete-directory/files tmp))
+
+  (test-case "manifest roundtrip"
+    (define tmp (make-temporary-file "shut~a" 'directory))
+    (write-manifest! tmp "PEER-PC" "hello.zip" 123 "abcd1234" "20261027-180000")
+    (define m (read-manifest tmp))
+    (check-equal? (hash-ref m 'sender) "PEER-PC")
+    (check-equal? (hash-ref m 'file) "hello.zip")
+    (check-equal? (hash-ref m 'size) 123)
+    (delete-directory/files tmp))
+
+  ;; --- full mailbox chain against the real share ------------------
+  ;; Uses a dedicated self-test mailbox so real mail is never touched.
+  ;; The send runs under a fake machine identity, then receive-cycle!
+  ;; (as this machine) must pick it up, verify, and clean the share.
+  (define (run-mailbox-selftest!)
+    (define share-root
+      (string->path "Z:\\19 汽车电子事业部\\研发部\\04_Software\\LiDAR"))
+    (define relay (build-path share-root ".shuttle-selftest"))
+    (define downloads (make-temporary-file "shuttle-dl~a" 'directory))
+    (init! #:config-dir (make-temporary-file "shuttle-cfg~a" 'directory)
+           #:relay-dir relay #:download-dir downloads)
+
+    ;; 1. send a small file under a fake peer identity
+    (define src (make-temporary-file "shuttle-src~a"))
+    (define payload #"shuttle selftest payload \xc3\xa9\xc3\xa8")
+    (call-with-output-file src #:exists 'truncate
+      (lambda (p) (write-bytes payload p)))
+    (define test-id (new-transfer-id))
+    (make-entry! test-id 'send "selftest 报告.bin"
+                 (file-size src) 'queued "测试" (display-stamp))
+    (parameterize ([this-machine "SELFTEST-PEER"])
+      (do-send! test-id (path->string src)))
+
+    ;; 2. the mailbox must now hold one folder with payload + markers
+    (define ours
+      (for/list ([f (in-list (relay-folders relay))]
+                 #:when (equal? (hash-ref (read-manifest f) 'id #f) test-id))
+        f))
+    (check-equal? (length ours) 1 "exactly one mailbox folder for the test id")
+    (define folder (first ours))
+    (check-true (file-exists? (build-path folder "payload")))
+    (check-true (file-exists? (build-path folder "shuttle.done")))
+    (check-equal? (file-size (build-path folder "payload")) (file-size src))
+
+    ;; 3. icacls self-heal: our grant must show up as inherited full control
+    (define acl-out
+      (with-output-to-string
+        (lambda ()
+          (system* (build-path (find-system-path 'sys-dir) "icacls.exe")
+                   (build-path folder "payload")))))
+    (check-true (string-contains? acl-out "(I)(F)")
+                (string-append "payload must inherit (I)(F), got: " acl-out))
+
+    ;; 4. receiving as this machine: download, verify, clean up the share
+    (receive-cycle!)
+    (define dests (map path->string (directory-list downloads)))
+    (check-equal? (length dests) 1 (format "downloaded: ~a" dests))
+    (check-equal? (file->bytes (build-path downloads (first dests))) payload)
+    (check-false (directory-exists? folder) "remote folder cleaned up")
+    (check-true (file-exists? (build-path (config-dir) "history.jsonl"))
+                "history persisted")
+
+    (delete-directory/files downloads)
+    (delete-directory/files relay)
+    (delete-file src))
+
+  (define (test-main) (run-mailbox-selftest!)))
