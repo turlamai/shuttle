@@ -650,13 +650,16 @@ void MainWindow::ShowSettingsDialog() {
   dialog.DefaultButton(ContentDialogButton::Primary);
   dialog.XamlRoot(Content().XamlRoot());
 
-  dialog.Closed([weak, backend, relay_box, download_box, autostart_toggle](
-                    ContentDialog const& sender,
-                    ContentDialogClosedEventArgs const&) {
+  // WinUI 3 ContentDialog exposes the dismissal result only through
+  // ShowAsync, so the save runs in the operation's completion.
+  auto const operation = dialog.ShowAsync();
+  operation.Completed([weak, backend, relay_box, download_box,
+                       autostart_toggle](auto const& async, auto const&) {
+    auto const result = async.GetResults();
     if (auto window = weak.get()) {
       window->settings_dialog_ = nullptr;
     }
-    if (sender.Result() != ContentDialogResult::Primary) {
+    if (result != ContentDialogResult::Primary) {
       return;
     }
     try {
@@ -681,8 +684,6 @@ void MainWindow::ShowSettingsDialog() {
     } catch (...) {
     }
   });
-
-  (void)dialog.ShowAsync();
 }
 
 void MainWindow::DropZone_Tapped(

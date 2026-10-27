@@ -40,7 +40,7 @@ struct MainWindow : MainWindowT<MainWindow> {
   void ApplyRelayHealth(bool ok, std::wstring const& message);
   void UpsertTransfer(rivet_app::Transfer const& transfer);
   void UpdateEmptyState();
-  void SendPathsAsync(std::vector<std::wstring> paths);
+  winrt::fire_and_forget SendPathsAsync(std::vector<std::wstring> paths);
   void ShowError(winrt::hstring const& message);
   void ShowSettingsDialog();
 
