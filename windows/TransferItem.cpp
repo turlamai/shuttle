@@ -40,10 +40,6 @@ std::wstring short_stamp(std::wstring const& stamp) {
   return stamp;
 }
 
-std::wstring to_wide(std::string const& utf8) {
-  return winrt::to_hstring(utf8).c_str();
-}
-
 }  // namespace
 
 winrt::event_token TransferItem::PropertyChanged(
