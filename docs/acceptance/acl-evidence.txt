@@ -1,0 +1,30 @@
+Z:/19 汽车电子事业部/研发部/04_Software/LiDAR\.shuttle-acl-probe INNOLIGHT\Domain Users:(I)(OI)(CI)(M)
+                                                       INNOLIGHT\server21_汽车光电子事业部 只读:(I)(OI)(CI)(RX)
+                                                       INNOLIGHT\server21_汽车光电子事业部 编辑:(I)(OI)(CI)(M)
+                                                       INNOLIGHT\netadmin:(I)(OI)(CI)(F)
+
+Successfully processed 1 files; Failed processing 0 files
+Z:/19 汽车电子事业部/研发部/04_Software/LiDAR\.shuttle-acl-probe\payload.bin INNOLIGHT\Domain Users:(I)(M)
+                                                                   INNOLIGHT\server21_汽车光电子事业部 只读:(I)(RX)
+                                                                   INNOLIGHT\server21_汽车光电子事业部 编辑:(I)(M)
+                                                                   INNOLIGHT\netadmin:(I)(F)
+
+Successfully processed 1 files; Failed processing 0 files
+--- BEFORE self-grant ---
+delete before grant succeeded? yes
+Z:/19 汽车电子事业部/研发部/04_Software/LiDAR\.shuttle-acl-probe INNOLIGHT\ren.ji:(OI)(CI)(F)
+                                                       INNOLIGHT\Domain Users:(I)(OI)(CI)(M)
+                                                       INNOLIGHT\server21_汽车光电子事业部 只读:(I)(OI)(CI)(RX)
+                                                       INNOLIGHT\server21_汽车光电子事业部 编辑:(I)(OI)(CI)(M)
+                                                       INNOLIGHT\netadmin:(I)(OI)(CI)(F)
+
+Successfully processed 1 files; Failed processing 0 files
+Z:/19 汽车电子事业部/研发部/04_Software/LiDAR\.shuttle-acl-probe\payload.bin INNOLIGHT\ren.ji:(I)(F)
+                                                                   INNOLIGHT\Domain Users:(I)(M)
+                                                                   INNOLIGHT\server21_汽车光电子事业部 只读:(I)(RX)
+                                                                   INNOLIGHT\server21_汽车光电子事业部 编辑:(I)(M)
+                                                                   INNOLIGHT\netadmin:(I)(F)
+
+Successfully processed 1 files; Failed processing 0 files
+--- AFTER self-grant (OI)(CI)F ---
+delete after grant succeeded? yes
