@@ -12,7 +12,7 @@ concurrency:
 # Single source of truth for the rivet pin: release builds pin, local
 # development tracks the linked checkout.
 env:
-  RIVET_PIN: 9de6f5a76991bf30f0e2b5890856e62a8493ad29
+  RIVET_PIN: 455b87be95fa7034b5cd242db27567d87d39b032
 
 jobs:
   windows:
