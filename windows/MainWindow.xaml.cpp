@@ -91,11 +91,18 @@ rivet::windows::RacketRuntimeConfig runtime_config() {
 }
 
 // FileOpenPicker and FolderPicker are WinRT activation-based; unpackaged
-// desktop apps must hand them the top-level HWND.
+// desktop apps must hand them the top-level HWND. Declared locally with
+// the canonical IInitializeWithWindow IID: same GUID, same vtable shape,
+// immune to SDK header declaration drift.
+struct __declspec(uuid("3D4BEFD3-9DFA-4DAF-A44A-2C2E26F1E23A"))
+    PickerWindowInitializer : ::IUnknown {
+  virtual HRESULT STDMETHODCALLTYPE SetWindow(HWND hwnd) = 0;
+};
+
 template <typename Picker>
 void BindPickerToWindow(Picker const& picker, HWND window) {
-  if (auto const initializable = picker.template try_as<::IInitializeWithWindow>()) {
-    initializable->SetWindow(window);
+  if (auto const target = picker.template try_as<PickerWindowInitializer>()) {
+    winrt::check_hresult(target->SetWindow(window));
   }
 }
 
