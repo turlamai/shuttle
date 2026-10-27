@@ -17,7 +17,7 @@
 #include <winrt/Windows.Storage.h>
 
 #include <objidl.h>
-#include <shobjidl.h>
+#include <shobjidl_core.h>
 #include <winreg.h>
 
 namespace winrt::RivetHost::implementation {
