@@ -13,3 +13,5 @@ raco-obj/
 
 macos-host/
 linux/
+windows/XamlMetaDataProvider.cpp
+windows/XamlMetaDataProvider.idl

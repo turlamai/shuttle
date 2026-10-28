@@ -173,6 +173,18 @@ MainWindow::MainWindow() {
   Title(L"Shuttle");
   ExtendsContentIntoTitleBar(true);
   SetTitleBar(CaptionBar());
+
+  // Compact utility window: narrow column, room for ~8 transfer rows.
+  // AppWindow.Resize takes physical pixels; scale the logical 460x660.
+  {
+    auto const app_window = AppWindow();
+    double const scale =
+        static_cast<double>(::GetDpiForWindow(WindowHandle())) / 96.0;
+    auto const width = static_cast<std::int32_t>(460 * scale);
+    auto const height = static_cast<std::int32_t>(660 * scale);
+    app_window.Resize({width, height});
+  }
+
   if (HICON const icon =
           ::LoadIconW(::GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1))) {
     AppWindow().SetIcon(winrt::Microsoft::UI::IconId{
