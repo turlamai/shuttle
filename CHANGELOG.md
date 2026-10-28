@@ -1,9 +1,30 @@
 # Changelog
 
-## [0.1.0] — 首个版本
+## [0.1.0] — initial release
 
-- **信箱式两机直传**：A 机拖文件进 Shuttle，文件经共享盘中转目录（默认 `Z:\19 汽车电子事业部\研发部\04_Software\LiDAR\.shuttle`）自动到达 B 机的 `Downloads\Shuttle` 并弹 Windows 通知，中转残留自动清理。
-- **权限自愈**：每次传输建子文件夹后立即 `icacls (OI)(CI)F` 自授权（不加 /t，靠继承传播整棵子树），对「能建不能删」的公共目录同样可用；只清理自己名下的文件夹，删除前必须完成本地落盘校验（共享盘删除不进回收站）。
-- **防错一致**：manifest 先写（崩溃可归属）、`payload.part` 复制完改名、`.done` 最后写；接收端只认完整传输，大小校验不符即丢弃本地副本；已处理 id 记账防重放。
-- **界面**：Mica 背景 + 自绘标题栏、拖放区（拖入高亮/点击选择）、传输列表（进度增量刷新）、托盘常驻（右键菜单、气泡通知、Explorer 重启自愈）、设置（中转/下载目录、开机自启）、信箱健康红绿点。
-- **工程**：Racket 后端（全部业务逻辑）+ WinUI 3 原生宿主，经 rivet typed RPC；中英双语界面文案单一源；共享盘断连自动提示。
+- **Mailbox-style direct transfer**: drop a file on machine A; it travels
+  through the relay mailbox on the share (default
+  `Z:\19 汽车电子事业部\研发部\04_Software\LiDAR\.shuttle`) and lands in
+  `Downloads\Shuttle` on machine B with a Windows toast; mailbox residue is
+  cleaned up automatically.
+- **Permission self-heal**: every transfer folder is immediately granted
+  `icacls (OI)(CI)F` (never `/t` — inheritance propagates the whole subtree
+  server-side), so cleanup works even in create-but-not-delete share
+  folders. Only folders owned by this machine are ever swept (crashed
+  sends after 1 day, completed sends after 7 days), and the remote folder
+  is deleted only after the local copy is fully written and verified
+  (share deletion bypasses the recycle bin).
+- **Fail-safe protocol**: `manifest.json` is written first (crash
+  attribution), the payload is copied as `payload.part` and renamed,
+  `shuttle.done` lands last; receivers act only on complete transfers,
+  discard size-mismatched local copies, and record consumed ids to prevent
+  redownload loops.
+- **Native UI**: Mica backdrop with a custom caption bar, drop zone
+  (drag highlight / click to pick), transfer list with incremental
+  progress, tray residency (menu, toasts, Explorer-restart survival),
+  settings (relay/download directories, sign-in autostart), and a
+  red/green mailbox-health dot.
+- **Engineering**: Racket backend (all product logic) + WinUI 3 host over
+  rivet typed RPC; zh/en UI strings from a single source; unreachable-share
+  warning; tag-driven CI releases with checksum sidecars and stable
+  download aliases.
