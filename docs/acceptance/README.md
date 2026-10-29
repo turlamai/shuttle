@@ -119,3 +119,11 @@ UIA 实测（150% DPI）：Settings 按钮 rect=(737,1065)-(795,1107)，位于�
 用户真机：v0.1.8 收发正常但发送时仍弹黑窗——wscript 内部的 icacls 子进程在 Win11 委托终端下连 SW_HIDE 都被无视。结构性解法：**发送时彻底不做授权**。依据：同账号配对语义下创建者账号即所有者，所有者天然可再授权；默认 LiDAR 目录 Domain Users 本就继承 (M) 可删。授权挪到 **delete-tree-with-retries! 的失败路径惰性执行**（接收清理与清扫共用该入口）：首次删除失败 → WMI 服务端隐藏创建（Win32_ProcessStartup ShowWindow=0，委托机制无法覆盖系统服务的创建）执行 icacls → 重试删除。默认目录上授权永不触发——发送全程零子进程，黑窗在发送路径物理消失。
 
 验证：全链路自测通过（无授权下发→收→清理完整走通）；CI/Release 全绿。已知边界：若用户把中转目录改到「能建不能删」的共享目录，首次清理时会触发一次 WMI 隐藏授权（不弹窗但可能慢几秒）。
+
+## v0.3.1 在线更新通道上线（2026-10-30）
+
+- **管线**：`raco rivet release`（去掉 --without-updates）+ `RIVET_UPDATE_*` 环境变量产出 **Ed25519 签名的 update-stable.json**（含 MSI/zip 的 URL、大小、SHA-256、installer kind），随 Release 资产发布；签名私钥存 GitHub secret（UPDATE_ED25519_PRIVATE_KEY，base64 文本——DER 二进制直接进 secret 会让 workflow 表达式解析在 startup 即爆炸，CI 里 base64 -d 还原）。
+- **backend**：`rivet/distribution` 的 make-updater（清单验签→策略选择→下载限流→SHA 校验）接成类型化 RPC（check-updates / start-download / cancel-download / updater-phase / updater-percent / updater-message / updater-available-version / verified-msi / set-install-flavor）。**宿主启动时注册表扫描安装形态并回报**（flavor：msi/portable，taskly 同款）——MSI 才启用更新通道。
+- **宿主 UI**：设置对话框更新区块——单按钮状态机（检查→自动下载带百分比→安装并重启），完成回调严格派发 UI 线程；通道不可达（私有仓清单需认证）时自动打开 Releases 页兜底。
+- **已知边界**：私有仓的 `releases/latest/download` 直链需认证，updater 不携带——**在线自动更新要求更新源可匿名 HTTPS 访问**。当前部署形态：检查更新会回退打开 Releases 页手动下载；未来若仓库转公开或提供内网/公开镜像源，自动链路即刻激活（代码已就绪，改 base-url 即可）。
+- **发布预检首次实战**：连抓两个版本错（rivet.rktd 与 app-version 的 sed 未匹配静默跳过）——预检的价值就是在这种地方失败而不是发布错版本。
