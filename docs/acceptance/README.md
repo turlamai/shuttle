@@ -84,3 +84,8 @@ Settings rect=(668,267)-(725,315)
 用户反馈 v0.1.2「齿轮贴着系统按钮」整体设计别扭——非惯例模式。重构为紧凑工具惯例：标题栏只承载身份（Shuttle · 本机名），系统按钮独占右上角；设置齿轮移至底部状态行右端（左端 = 信箱健康点 + 文案）。0.1.1/0.1.2 的 RightInset/DPI 换算机制整体删除（不再需要）。
 
 UIA 实测（150% DPI）：Settings 按钮 rect=(737,1065)-(795,1107)，位于窗口底部；系统按钮 (624..831,152..200) 在顶部——两者相距 900+ px，不可能重叠。截图 `gui-v013.png`（标题栏区域）；底部状态行因 PrintWindow 对 Mica+DirectComposition 的合成截断未入图，元素存在性以 UIA 为准。
+
+## v0.1.5 两个用户真机 bug（2026-10-29）
+
+1. **send-file RPC 结果类型错误**（用户拖文件报 "expected Transfer received Unsupported"）：RPC 体返回了内部 entry hasheq，与声明的 Transfer 记录不符，wire 层校验拒绝——而且发生在传输已入队之后（文件其实已发送，UI 却显示失败）。教训与 0.1.4 同源：**RPC 层（wire 校验）此前从未被测试触达**。修复 = RPC 体抽成 `begin-send!` 返回 `(entry->record entry)`；回归测试用 `record-ref` 断言记录类型（hasheq 会在 record-ref 处 raise）。`init!` 加 `#:force?` 让各自测可重指配置。
+2. **每次发送弹黑色终端窗**：icacls 自愈是控制台子进程，从无控制台的 GUI 宿主派生时 Windows 为其新开可见终端（Win11 表现为 Windows Terminal 闪窗）。修复 = `conhost --hostless` 包裹（headless 控制台），不支持该 flag 的旧 conhost 探测一次后回退直调（闪烁但可用）。
