@@ -43,6 +43,12 @@ struct MainWindow : MainWindowT<MainWindow> {
       winrt::Microsoft::UI::Xaml::DispatcherTimer timer);
   void StartUpdateTimer();
   void StopUpdateTimer();
+  void RunUpdateFlow(winrt::Microsoft::UI::Xaml::Controls::Button update_button,
+                     winrt::Microsoft::UI::Xaml::Controls::TextBlock update_status);
+  void PollUpdatePhase(winrt::Microsoft::UI::Xaml::Controls::Button update_button,
+                       winrt::Microsoft::UI::Xaml::Controls::TextBlock update_status);
+  void InstallVerifiedUpdate();
+  void OpenReleasesPage();
   void ApplyRelayHealth(bool ok, std::wstring const& message);
   void UpsertTransfer(rivet_app::Transfer const& transfer);
   void UpdateEmptyState();
@@ -69,6 +75,9 @@ struct MainWindow : MainWindowT<MainWindow> {
   // Owned here so the settings dialog's download poller survives while
   // its capturing lambdas stay alive.
   winrt::Microsoft::UI::Xaml::DispatcherTimer update_timer_{nullptr};
+  // Update state machine: once a verified artifact is on disk the
+  // button turns into "install and restart".
+  bool update_install_armed_ = false;
 
   std::map<std::wstring, winrt::RivetHost::TransferItem, std::less<>> items_;
 

@@ -16,7 +16,7 @@ struct I18nEntry {
   std::string_view en;
 };
 
-inline constexpr std::array<I18nEntry, 39> kI18nTable{{
+inline constexpr std::array<I18nEntry, 40> kI18nTable{{
     {"app.name", "Shuttle", "Shuttle"},
     {"browse.download-dir", "\351\200\211\346\213\251\344\270\213\350\275\275\347\233\256\345\275\225", "Choose download directory"},
     {"browse.pick-files", "\351\200\211\346\213\251\350\246\201\345\217\221\351\200\201\347\232\204\346\226\207\344\273\266", "Choose files to send"},
@@ -50,6 +50,7 @@ inline constexpr std::array<I18nEntry, 39> kI18nTable{{
     {"tray.tooltip", "Shuttle \342\200\224 \346\226\207\344\273\266\347\233\264\350\276\276\345\217\246\344\270\200\345\217\260\347\224\265\350\204\221", "Shuttle \342\200\224 files straight to the other PC"},
     {"update.check", "\346\243\200\346\237\245\346\233\264\346\226\260", "Check for updates"},
     {"update.checking", "\346\255\243\345\234\250\346\243\200\346\237\245\346\233\264\346\226\260\342\200\246", "Checking for updates\342\200\246"},
+    {"update.downloaded", "\346\233\264\346\226\260\345\267\262\344\270\213\350\275\275\357\274\214\351\232\217\346\227\266\345\217\257\345\256\211\350\243\205", "Update downloaded and ready to install"},
     {"update.downloading", "\346\255\243\345\234\250\344\270\213\350\275\275\346\233\264\346\226\260\342\200\246", "Downloading update\342\200\246"},
     {"update.idle", "\346\233\264\346\226\260", "Updates"},
     {"update.install", "\345\256\211\350\243\205\345\271\266\351\207\215\345\220\257", "Install and restart"},

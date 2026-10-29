@@ -618,6 +618,116 @@ void MainWindow::StopUpdateTimer() {
   if (update_timer_) update_timer_.Stop();
 }
 
+void MainWindow::RunUpdateFlow(
+    Controls::Button update_button, Controls::TextBlock update_status) {
+  auto const backend = backend_;
+  if (backend == nullptr || !backend->running()) {
+    ShowError(tr_hstring("error.backend-not-ready"));
+    return;
+  }
+  auto const set_status = [update_status](hstring const& text) {
+    update_status.Text(text);
+  };
+  auto const set_button = [update_button](hstring const& text, bool enabled) {
+    update_button.Content(box_value(text));
+    update_button.IsEnabled(enabled);
+  };
+  set_button(hstring(tr_hstring("update.working")), false);
+  set_status(hstring(tr_hstring("update.checking")));
+
+  auto const weak = get_weak();
+  rivet_app::API api(*backend);
+  (void)api.check_updates_async(
+      [weak, backend, update_button, update_status](
+          rivet_app::Result<std::string>) {
+        auto const window = weak.get();
+        if (window == nullptr) return;
+        window->DispatcherQueue().TryEnqueue(
+            [weak, backend, update_button, update_status]() {
+              auto const window2 = weak.get();
+              if (window2 == nullptr) return;
+              window2->PollUpdatePhase(update_button, update_status);
+            });
+      });
+}
+
+void MainWindow::PollUpdatePhase(
+    Controls::Button update_button, Controls::TextBlock update_status) {
+  auto const backend = backend_;
+  if (backend == nullptr || !backend->running()) return;
+  try {
+    rivet_app::API api(*backend);
+    auto const phase = api.updater_phase().get();
+    if (phase == "available") {
+      set_button(hstring(tr_hstring("update.working")), false);
+      set_status(hstring(tr_hstring("update.downloading")));
+      (void)api.start_download().get();
+
+      auto weak = get_weak();
+      update_timer_ = DispatcherTimer();
+      update_timer_.Interval(std::chrono::milliseconds{1000});
+      update_timer_.Tick(
+          [weak, update_button, update_status](auto const&, auto const&) {
+            if (auto window = weak.get()) {
+              window->PollUpdatePhase(update_button, update_status);
+            }
+          });
+      update_timer_.Start();
+    } else if (phase == "downloaded") {
+      update_install_armed_ = true;
+      if (auto const version = api.updater_available_version().get();
+          !version.empty()) {
+        set_status(hstring{L"已就绪 " +
+                           std::wstring{winrt::to_hstring(version)}});
+      } else {
+        set_status(hstring(tr_hstring("update.downloaded")));
+      }
+      set_button(hstring(tr_hstring("update.install")), true);
+      StopUpdateTimer();
+    } else if (phase == "error") {
+      update_install_armed_ = false;
+      StopUpdateTimer();
+      set_button(hstring(tr_hstring("update.check")), true);
+      OpenReleasesPage();
+    } else if (phase == "up-to-date") {
+      update_install_armed_ = false;
+      StopUpdateTimer();
+      set_status(hstring(tr_hstring("update.uptodate")));
+      set_button(hstring(tr_hstring("update.check")), true);
+    } else if (phase == "downloading") {
+      auto const percent = api.updater_percent().get();
+      set_status(hstring{L"下载中 " + std::to_wstring(percent) +
+                         L"%"});
+    }
+  } catch (std::exception const& e) {
+    ShowError(e.what());
+    StopUpdateTimer();
+  }
+}
+
+void MainWindow::InstallVerifiedUpdate() {
+  auto const backend = backend_;
+  if (backend == nullptr || !backend->running()) return;
+  try {
+    rivet_app::API api(*backend);
+    auto const msi = api.verified_msi().get();
+    rivet::update::MsiHandoff::LaunchVerifiedInstaller(
+        L"shuttle", std::filesystem::path{winrt::to_hstring(msi).c_str()},
+        executable_path().wstring());
+  } catch (std::exception const& e) {
+    ShowError(e.what());
+  }
+}
+
+void MainWindow::OpenReleasesPage() {
+  try {
+    auto const page =
+        winrt::Uri{L"https://github.com/turlamai/shuttle/releases/latest"};
+    (void)Windows::System::Launcher::LaunchUriAsync(page);
+  } catch (...) {
+  }
+}
+
 void MainWindow::ApplyRelayHealth(bool ok, std::wstring const& message) {
   HealthDot().Fill(HealthBrush(ok));
   HealthText().Text(hstring(message));
@@ -778,7 +888,8 @@ void MainWindow::ShowSettingsDialog() {
     content.Children().Append(autostart_row);
   }
 
-  // --- update block: one stateful button plus a status line. ---
+  // --- update block: a member-function state machine, not nested
+  // lambdas. One button walks check -> download -> install.
   auto update_row = StackPanel();
   update_row.Orientation(Orientation::Horizontal);
   update_row.Spacing(8);
@@ -793,148 +904,17 @@ void MainWindow::ShowSettingsDialog() {
   update_row.Children().Append(update_button);
   content.Children().Append(update_row);
 
-  auto browse_folder = [weak](TextBox box) -> winrt::fire_and_forget {
-    try {
-      FolderPicker picker;
-      picker.FileTypeFilter().Append(L"*");
-      BindPickerToWindow(picker, weak.get()->WindowHandle());
-      auto const folder = co_await picker.PickSingleFolderAsync();
-      if (folder != nullptr) {
-        box.Text(folder.Path());
+  update_install_armed_ = false;
+  update_button.Click([weak = get_weak(), update_button,
+                       update_status](auto const&, auto const&) {
+    if (auto window = weak.get()) {
+      if (window->update_install_armed_) {
+        window->InstallVerifiedUpdate();
+      } else {
+        window->RunUpdateFlow(update_button, update_status);
       }
-    } catch (...) {
-    }
-  };
-  relay_browse.Click([weak, relay_box, browse_folder](auto const&,
-                                                      auto const&) {
-    if (weak.get()) {
-      browse_folder(relay_box);
     }
   });
-  download_browse.Click([weak, download_box, browse_folder](auto const&,
-                                                            auto const&) {
-    if (weak.get()) {
-      browse_folder(download_box);
-    }
-  });
-
-  // Update flow: check -> (auto) download -> arm -> handoff. One button
-  // walks the state machine; a dialog-local timer polls the phase.
-  {
-    struct UpdateRun {
-      bool download_started = false;
-      bool install_armed = false;
-      std::wstring available_version;
-    };
-    auto run = std::make_shared<UpdateRun>();
-
-    auto set_status = [update_status](hstring const& text) {
-      update_status.Text(text);
-    };
-    auto set_button = [update_button](hstring const& text, bool enabled) {
-      update_button.Content(box_value(text));
-      update_button.IsEnabled(enabled);
-    };
-
-    update_button.Click([weak = get_weak(), backend, run, set_status,
-                         set_button](auto const&, auto const&) {
-      auto window = weak.get();
-      if (window == nullptr) return;
-
-      if (run->install_armed) {
-        // Hand the verified MSI to the installer handoff; it quits this
-        // process, runs msiexec, and relaunches the app.
-        try {
-          rivet_app::API api(*backend);
-          auto const msi = api.verified_msi().get();
-          auto const exe = executable_path().wstring();
-          rivet::update::MsiHandoff::LaunchVerifiedInstaller(
-              L"shuttle", std::filesystem::path{winrt::to_hstring(msi).c_str()},
-              exe);
-        } catch (std::exception const& e) {
-          window->ShowError(winrt::to_hstring(e.what()));
-        }
-        return;
-      }
-
-      set_button(tr_hstring("update.working"), false);
-      set_status(tr_hstring("update.checking"));
-      rivet_app::API api(*backend);
-      (void)api.check_updates_async(
-          [weak, run, set_status, set_button](rivet_app::Result<std::string>) {
-            auto window2 = weak.get();
-            if (window2 == nullptr) return;
-            auto backend2 = window2->backend_;
-            if (backend2 == nullptr || !backend2->running()) return;
-            try {
-              rivet_app::API phase_api(*backend2);
-              auto const phase = phase_api.updater_phase().get();
-              if (phase == "available") {
-                run->available_version =
-                    std::wstring{winrt::to_hstring(
-                        phase_api.updater_available_version().get())};
-                set_status(tr_hstring("update.downloading"));
-                (void)phase_api.start_download().get();
-
-                auto timer = DispatcherTimer();
-                timer.Interval(std::chrono::milliseconds{1000});
-                timer.Tick([weak, run, set_status, set_button](
-                               auto const&, auto const&) {
-                  auto window3 = weak.get();
-                  if (window3 == nullptr) return;
-                  try {
-                    rivet_app::API poll_api(*window3->backend_);
-                    auto const phase2 = poll_api.updater_phase().get();
-                    if (phase2 == "downloading") {
-                      auto const percent = poll_api.updater_percent().get();
-                      set_status(hstring{L"下载中 " +
-                                         std::to_wstring(percent) + L"%"});
-                    } else if (phase2 == "downloaded") {
-                      run->install_armed = true;
-                      set_status(hstring{L"已就绪 " + run->available_version});
-                      set_button(
-                          tr_hstring("update.install"), true);
-                      if (auto timer_window = weak.get()) {
-                        timer_window->StopUpdateTimer();
-                      }
-                    } else if (phase2 == "error") {
-                      auto const message =
-                          poll_api.updater_message().get();
-                      set_status(hstring{winrt::to_hstring(message)});
-                      run->install_armed = false;
-                      if (auto timer_window = weak.get()) {
-                        timer_window->StopUpdateTimer();
-                      }
-                    }
-                  } catch (std::exception const& e) {
-                    set_status(winrt::to_hstring(e.what()));
-                  }
-                });
-                window2->SetUpdateTimer(std::move(timer));
-                window2->StartUpdateTimer();
-              } else if (phase == "up-to-date") {
-                set_status(tr_hstring("update.uptodate"));
-                set_button(tr_hstring("update.check"), true);
-              } else if (phase == "error") {
-                // Private repository: the manifest URL needs
-                // authentication the updater does not carry. Fall back
-                // to opening the releases page.
-                set_status(tr_hstring("update.openreleases"));
-                auto const page = winrt::Uri{
-                    L"https://github.com/turlamai/shuttle/releases/latest"};
-                (void)Windows::System::Launcher::LaunchUriAsync(page);
-                set_button(tr_hstring("update.check"), true);
-              } else {
-                set_status(hstring{winrt::to_hstring(phase)});
-                set_button(tr_hstring("update.check"), true);
-              }
-            } catch (std::exception const& e) {
-              set_status(winrt::to_hstring(e.what()));
-              set_button(tr_hstring("update.check"), true);
-            }
-          });
-    });
-  }
 
   dialog.Title(box_value(tr_hstring("settings.title")));
   dialog.Content(content);

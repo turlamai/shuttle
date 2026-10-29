@@ -32,6 +32,7 @@
   "tray.tooltip": "Shuttle — files straight to the other PC",
   "update.check": "Check for updates",
   "update.checking": "Checking for updates…",
+  "update.downloaded": "Update downloaded and ready to install",
   "update.downloading": "Downloading update…",
   "update.idle": "Updates",
   "update.install": "Install and restart",

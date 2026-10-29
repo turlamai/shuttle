@@ -32,6 +32,7 @@
   "tray.tooltip": "Shuttle — 文件直达另一台电脑",
   "update.check": "检查更新",
   "update.checking": "正在检查更新…",
+  "update.downloaded": "更新已下载，随时可安装",
   "update.downloading": "正在下载更新…",
   "update.idle": "更新",
   "update.install": "安装并重启",
