@@ -150,13 +150,18 @@ void SetAutostart(bool enable) {
 // verified MSI and MsiHandoff runs it). Portable copies update by
 // re-downloading from the releases page.
 bool IsMsiInstall() {
-  const wchar_t* roots[] = {
+  // Per-machine MSIs land under HKLM (both views); per-user MSIs under
+  // HKCU. All three can carry a Shuttle entry.
+  const HKEY roots[] = {HKEY_LOCAL_MACHINE, HKEY_LOCAL_MACHINE,
+                        HKEY_CURRENT_USER};
+  const wchar_t* paths[] = {
       L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
       L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+      L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
   };
-  for (auto const* root : roots) {
+  for (int i = 0; i < 3; ++i) {
     HKEY key = nullptr;
-    if (::RegOpenKeyExW(HKEY_LOCAL_MACHINE, root, 0, KEY_READ, &key) !=
+    if (::RegOpenKeyExW(roots[i], paths[i], 0, KEY_READ, &key) !=
         ERROR_SUCCESS) {
       continue;
     }
