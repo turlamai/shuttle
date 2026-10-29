@@ -65,3 +65,16 @@ winget install --id Microsoft.VisualStudio.2022.BuildTools --override "--quiet -
    ```
 
 4. 陷阱备忘：这台机器上 Taskly 与 Shuttle 同为 rivet 应用、宿主进程同名 `RivetHost.exe`——按进程名杀进程会误伤，必须按窗口标题区分。
+
+## v0.1.2 标题栏重叠修复验证（2026-10-29，UIAutomation 坐标实测）
+
+用户在真机发现设置齿轮与系统最小化/最大化/关闭按钮重叠（ExtendsContentIntoTitleBar 后系统按钮浮在右上角，齿轮钉在 CaptionBar 最右缘）。
+
+修复后 UIA 实测（150% DPI）：
+
+```
+Minimize rect=(738,266)-(807,314)   Maximize (807,266)-(876,314)   Close (876,266)-(945,314)
+Settings rect=(668,267)-(725,315)
+```
+
+齿轮右缘 725 < 最小化左缘 738（间距 = 设计的 8 DIP padding），垂直 1px 内对齐系统按钮带（32 DIP 顶部带 + Top 对齐）。两处根因：① RightInset 是物理像素，直接喂 DIP Thickness 在 >100% DPI 下二次缩放（首版 1.5 倍过宽）；② 齿轮原来垂直居中于 48 DIP 行，改为 Height=32 + Top 对齐。截图 `gui-v012.png`。
