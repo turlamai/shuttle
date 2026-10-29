@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.1.8]
+
+### Fixed
+
+- **Sends stayed stuck at "Queued" — the third and final round.**
+  v0.1.7's in-process FFI grant was the wrong cure: Racket CS runs FFI
+  calls on the original thread, which the WinUI host occupies with its
+  message loop, so any grant from a background thread waits forever.
+  Diagnosed by step-timed repro (grant completes in 5 ms from a console
+  REPL whose original thread is idle) plus the leftover empty mailbox
+  folders and the new per-step diagnostic log. The grant now shells out
+  to icacls hidden behind **wscript** (a GUI-subsystem host: spawning it
+  allocates no console, and the .js drives it with window style 0),
+  every external call runs under a hard 5-10 second timeout, and each
+  step writes `%APPDATA%\Shuttle\send-debug.log` so a hung send leaves
+  its exact stopping point on disk.
+- **The transfer list froze at "Queued" even on success.** The backend
+  event emitter lives on the RPC thread, so events from the sender and
+  receiver threads were silently dropped and the UI never progressed.
+  The list is now reconciled against the authoritative table by a 1.5 s
+  poll (also covers history clears and incoming transfers).
+
 ## [0.1.7]
 
 ### Fixed
