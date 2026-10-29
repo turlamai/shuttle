@@ -56,7 +56,7 @@
 
 ;; Bumped together with rivet.rktd and the generated C++ client; the
 ;; release preflight (scripts/check-release-version.sh) asserts all four.
-(define app-version "0.2.0")
+(define app-version "0.3.0")
 
 ;; Ed25519 public key (raw 32 bytes, base64) that signed update
 ;; manifests must verify against. Private half lives in the

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0]
+
+### Fixed
+
+- The update button works end to end: the settings dialog's update block
+  is now a member-function state machine (check -> download with percent
+  -> install and restart via MsiHandoff), with completions dispatched to
+  the UI thread before touching controls. When the update channel is
+  unreachable (private repository manifests need authentication the
+  updater does not carry), the app opens the Releases page instead of
+  showing a bare error.
+
 ## [0.2.0]
 
 ### Added
