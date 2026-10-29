@@ -501,10 +501,12 @@ winrt::fire_and_forget MainWindow::InitializeBackendAsync() {
                               std::wstring{winrt::to_hstring(
                                   settings.machine)}});
                   try {
-                    rivet_app::API flavor_api(*live);
-                    (void)flavor_api.set_install_flavor_async(
-                        IsMsiInstall() ? "msi" : "portable",
-                        [](rivet_app::Result<bool>) {});
+                    if (auto flavor_backend = window->backend_) {
+                      rivet_app::API flavor_api(*flavor_backend);
+                      (void)flavor_api.set_install_flavor_async(
+                          IsMsiInstall() ? "msi" : "portable",
+                          [](rivet_app::Result<bool>) {});
+                    }
                   } catch (...) {
                   }
                   window->SetupPolling();
