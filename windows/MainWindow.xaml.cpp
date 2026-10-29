@@ -655,6 +655,13 @@ void MainWindow::PollUpdatePhase(
     Controls::Button update_button, Controls::TextBlock update_status) {
   auto const backend = backend_;
   if (backend == nullptr || !backend->running()) return;
+  auto const set_status = [update_status](hstring const& text) {
+    update_status.Text(text);
+  };
+  auto const set_button = [update_button](hstring const& text, bool enabled) {
+    update_button.Content(box_value(text));
+    update_button.IsEnabled(enabled);
+  };
   try {
     rivet_app::API api(*backend);
     auto const phase = api.updater_phase().get();
