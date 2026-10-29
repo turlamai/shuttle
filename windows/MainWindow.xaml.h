@@ -37,6 +37,8 @@ struct MainWindow : MainWindowT<MainWindow> {
   void SetupLocalization();
   void SetupWindowBehavior();
   void SetupTray();
+  void SetupPolling();
+  void PollTransfers();
   void ApplyRelayHealth(bool ok, std::wstring const& message);
   void UpsertTransfer(rivet_app::Transfer const& transfer);
   void UpdateEmptyState();
@@ -56,6 +58,10 @@ struct MainWindow : MainWindowT<MainWindow> {
   winrt::Microsoft::UI::Xaml::Shapes::Ellipse health_dot_{nullptr};
   winrt::Microsoft::UI::Xaml::Controls::Border drop_zone_{nullptr};
   winrt::Microsoft::UI::Xaml::Controls::ContentDialog settings_dialog_{nullptr};
+
+  // Background threads cannot emit Rivet events (the emitter lives on
+  // the RPC thread), so the list is refreshed by polling instead.
+  winrt::Microsoft::UI::Xaml::DispatcherTimer poll_timer_{nullptr};
 
   std::map<std::wstring, winrt::RivetHost::TransferItem, std::less<>> items_;
 

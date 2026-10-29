@@ -13,7 +13,6 @@
          racket/string
          racket/system
          racket/async-channel
-         ffi/unsafe
          json
          rivet/backend)
 
@@ -22,7 +21,10 @@
          init! do-send! receive-cycle! sweep-own-folders!
          sanitize-filename unique-dest read-manifest
          this-machine snapshot-transfers begin-send!
-         list-transfers-records)
+         list-transfers-records
+         ;; share-op internals (driven by the self-tests)
+         self-grant-full-control! write-manifest! write-done-marker!
+         ensure-wscript-js!)
 
 ;; ---------------------------------------------------------------- contract
 
@@ -290,95 +292,96 @@
 ;; the conhost --headless wrapper hung the sender thread on Windows 11
 ;; with terminal delegation. If ffi/unsafe is unavailable in a staged
 ;; runtime, fall back to a plain icacls call (flashes, but works).
+;; Field diagnostics: every share op appends one line here so a hung
+;; send on a user machine leaves its exact stopping point on disk.
+(define (send-log! what [detail ""])
+  (with-handlers ([exn:fail? void])
+    (call-with-output-file (build-path (config-dir) "send-debug.log")
+      #:exists 'append
+      (lambda (p)
+        (fprintf p "[~a] ~a~a
+"
+                 (display-stamp) what
+                 (if (string=? detail "") "" (string-append " | " detail)))))))
+
+;; Run THUNK on a worker thread, returning its values; if it exceeds
+;; SECONDS the worker is killed and an error is raised. Guards every
+;; external call against indefinite hangs (the conhost/icacls lessons).
+(define (call-with-hard-timeout seconds thunk)
+  (define result-box #f)
+  (define error-box #f)
+  (define done (make-semaphore))
+  (define worker
+    (thread (lambda ()
+              (with-handlers ([exn:fail?
+                               (lambda (e) (set! error-box e) (semaphore-post done))])
+                (set! result-box (call-with-values thunk list))
+                (semaphore-post done)))))
+  (unless (sync/timeout seconds done)
+    (kill-thread worker)
+    (error 'timeout "operation exceeded ~a seconds" seconds))
+  (when error-box (raise error-box))
+  (apply values result-box))
+
 (define (icacls-grant! dir)
   (define user (grant-user))
   (and user
-       (eq? 0
-            (with-handlers ([exn:fail? (const 1)])
-              (apply system*/exit-code
-                     (build-path (find-system-path 'sys-dir) "icacls.exe")
-                     dir "/grant" (string-append user ":(OI)(CI)F"))))))
+       (let ([code (call-with-hard-timeout 5
+                     (lambda ()
+                       (apply system*/exit-code
+                              (build-path (find-system-path 'sys-dir) "icacls.exe")
+                              dir "/grant"
+                              (string-append user ":(OI)(CI)F"))))])
+         (eq? 0 code))))
 
-(define (ffi-self-grant! dir)
+;; The icacls child is hidden by running it through wscript (a GUI
+;; subsystem host: spawning it from our windowed process allocates no
+;; console) with a generated .js that shells out with window style 0.
+;; Racket CS FFI was tried first but its calls execute on the original
+;; thread, which the host's message loop occupies — background-thread
+;; FFI hangs forever (v0.1.7). Spawned subprocesses do not have that
+;; constraint, and every external call keeps its hard timeout.
+(define (wscript-js-path)
+  (build-path (config-dir) "shuttle-hide-run.js"))
+
+(define (ensure-wscript-js!)
+  (define p (wscript-js-path))
+  (unless (file-exists? p)
+    (with-output-to-file p #:exists 'truncate
+      (lambda ()
+        (displayln
+         (string-append
+          "var sh = new ActiveXObject(\"WScript.Shell\");\n"
+          "var c = WScript.Arguments;\n"
+          "var line = \"\";\n"
+          "for (var i = 1; i < c.length; i++) {\n"
+          "  line += (line == \"\" ? \"\" : \" \") + \"\\\"\" + c(i) + \"\\\"\";\n"
+          "}\n"
+          "WScript.Quit(sh.Run(line, 0, true));\n"))))))
+
+(define (hidden-icacls-grant! dir)
   (define user (grant-user))
-  (unless user
-    (error 'self-grant "no domain user"))
-  (define advapi (ffi-lib "Advapi32.dll"))
-  (define GetNamedSecurityInfoW
-    (get-ffi-obj "GetNamedSecurityInfoW" advapi
-      (_fun _string/utf-16 _uint32 _uint32
-            (_ptr o _pointer) (_ptr o _pointer)
-            (dacl : (_ptr o _pointer)) (_ptr o _pointer) (sd : (_ptr o _pointer))
-            -> (r : _uint32)
-            -> (values r dacl sd))))
-  (define SetEntriesInAclW
-    (get-ffi-obj "SetEntriesInAclW" advapi
-      (_fun _uint32 _pointer _pointer
-            (new-acl : (_ptr o _pointer))
-            -> (r : _uint32)
-            -> (values r new-acl))))
-  (define SetNamedSecurityInfoW
-    (get-ffi-obj "SetNamedSecurityInfoW" advapi
-      (_fun _string/utf-16 _uint32 _uint32 _pointer _pointer _pointer _pointer
-            -> _uint32)))
-  (define LocalFree
-    (get-ffi-obj "LocalFree" (ffi-lib "Kernel32.dll") (_fun _pointer -> _pointer)))
-
-  ;; EXPLICIT_ACCESS_W (40 bytes on x64): FILE_ALL_ACCESS, GRANT_ACCESS,
-  ;; OBJECT|CONTAINER_INHERIT, TRUSTEE_IS_NAME for the current account.
-  (define FILE_ALL_ACCESS #x1F01FF)
-  (define GRANT_ACCESS 1)
-  (define INHERIT_ACE 3) ; OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE
-  (define SE_FILE_OBJECT 1)
-  (define DACL_SECURITY_INFORMATION 4)
-
-  ;; ffi/unsafe has _string/utf-16 (used above) but no string->utf16
-  ;; value conversion; encode the trustee name by hand. Domain account
-  ;; names are ASCII/BMP — surrogate pairs are rejected defensively.
-  (define (string->utf16le s)
-    (define cps (for/list ([c (in-string s)]) (char->integer c)))
-    (for ([cp (in-list cps)])
-      (when (> cp #xFFFF)
-        (error 'self-grant "non-BMP character in account name")))
-    (define b (make-bytes (* 2 (add1 (length cps))))) ; trailing UTF-16 NUL
-    (for ([cp (in-list cps)] [i (in-naturals)])
-      (bytes-set! b (* 2 i) (bitwise-and cp #xFF))
-      (bytes-set! b (add1 (* 2 i)) (bitwise-and (arithmetic-shift cp -8) #xFF)))
-    b)
-
-  (define name-bytes (string->utf16le user))
-  (define name-mem (malloc (bytes-length name-bytes) 'automatic))
-  (memcpy name-mem 0 name-bytes 0 (bytes-length name-bytes) _byte)
-
-  (define ea (make-bytes 40 0))
-  (ptr-set! ea _uint32 0 FILE_ALL_ACCESS)
-  (ptr-set! ea _uint32 4 GRANT_ACCESS)
-  (ptr-set! ea _uint32 8 INHERIT_ACE)
-  ;; TRUSTEE_W at offset 16: pTrustee(16) null, TrusteeForm(24)=1
-  ;; (TRUSTEE_IS_NAME), TrusteeType(28)=0 (UNKNOWN), ptstrName(32).
-  (ptr-set! ea _pointer 16 #f)
-  (ptr-set! ea _uint32 24 1)
-  (ptr-set! ea _uint32 28 0)
-  (ptr-set! ea _pointer 32 name-mem)
-
-  (define-values (g-code g-dacl g-sd) (GetNamedSecurityInfoW dir SE_FILE_OBJECT DACL_SECURITY_INFORMATION))
-  (unless (zero? g-code)
-    (LocalFree g-sd)
-    (error 'self-grant "GetNamedSecurityInfoW failed: ~a" g-code))
-  (define-values (e-code new-dacl) (SetEntriesInAclW 1 ea g-dacl))
-  (when (and (not (zero? e-code)) g-sd) (LocalFree g-sd))
-  (unless (zero? e-code)
-    (when g-sd (LocalFree g-sd))
-    (when new-dacl (LocalFree new-dacl))
-    (error 'self-grant "SetEntriesInAclW failed: ~a" e-code))
-  (define s-code (SetNamedSecurityInfoW dir SE_FILE_OBJECT DACL_SECURITY_INFORMATION #f #f new-dacl #f))
-  (when g-sd (LocalFree g-sd))
-  (when new-dacl (LocalFree new-dacl))
-  (zero? s-code))
+  (and user
+       (let* ([js (wscript-js-path)]
+              [code
+               (call-with-hard-timeout 10
+                 (lambda ()
+                   (system*/exit-code
+                    (build-path (find-system-path 'sys-dir) "wscript.exe")
+                    "//nologo" js
+                    "x" ; slot 0 reserved; arguments start at 1
+                    (path->string (build-path (find-system-path 'sys-dir) "icacls.exe"))
+                    (path->string dir)
+                    "/grant"
+                    (string-append user ":(OI)(CI)F"))))])
+         (eq? 0 code))))
 
 (define (self-grant-full-control! dir)
-  (with-handlers ([exn:fail? (lambda (e) (icacls-grant! dir))])
-    (ffi-self-grant! dir)))
+  (send-log! "grant begin")
+  (ensure-wscript-js!)
+  (define r (hidden-icacls-grant! dir))
+  (send-log! "grant result" (if r "ok" (format "code=~a" r)))
+  r)
 
 (define (delete-tree-with-retries! path [attempts 3])
   (let loop ([n attempts])
@@ -459,21 +462,30 @@
     (append-history! (hasheq 'id id 'direction "send" 'file filename
                              'size size 'ts stamp 'ok #f 'msg msg)))
 
+  (send-log! "send begin" (format "id=~a file=~a bytes=~a" id filename size))
   (with-handlers ([exn:fail?
-                   (lambda (e) (fail! (format "发送失败：~a" (exn-message e))))])
+                   (lambda (e)
+                     (send-log! "send FAILED" (exn-message e))
+                     (fail! (format "发送失败：~a" (exn-message e))))])
     (unless (file-exists? src)
       (error 'shuttle "源文件不存在：~a" local-path))
+    (send-log! "relay mkdir")
     (make-directory* relay)
     (define folder (build-path relay (mailbox-folder-name (folder-stamp) id)))
+    (send-log! "folder mkdir")
     (make-directory* folder)
+    (send-log! "self-grant")
     (self-grant-full-control! folder)
+    (send-log! "self-grant done")
     ;; Manifest first: a crashed send still shows sender attribution for sweep.
     (write-manifest! folder (this-machine) filename size id stamp)
     (entry-status id 'active "复制到信箱中…")
+    (send-log! "copy begin")
     (copy-with-progress! src (build-path folder "payload.part") id)
     (rename-file-or-directory (build-path folder "payload.part")
                               (build-path folder "payload"))
     (write-done-marker! folder)
+    (send-log! "send complete")
     (entry-status id 'sent "已放入信箱，待另一台电脑接收")
     (append-history! (hasheq 'id id 'direction "send" 'file filename
                              'size size 'ts stamp 'ok #t 'msg "已发送"))))

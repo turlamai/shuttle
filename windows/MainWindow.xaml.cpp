@@ -455,6 +455,7 @@ winrt::fire_and_forget MainWindow::InitializeBackendAsync() {
                       hstring{L"本机 " +
                               std::wstring{winrt::to_hstring(
                                   settings.machine)}});
+                  window->SetupPolling();
                 }
               });
         } catch (std::exception const& e) {
@@ -487,6 +488,66 @@ void MainWindow::ShowError(hstring const& message) {
   ErrorBar().Severity(InfoBarSeverity::Error);
   ErrorBar().Message(message);
   ErrorBar().IsOpen(true);
+}
+
+void MainWindow::SetupPolling() {
+  poll_timer_ = Xaml::DispatcherTimer();
+  poll_timer_.Interval(std::chrono::milliseconds{1500});
+  poll_timer_.Tick([weak = get_weak()](auto const&, auto const&) {
+    if (auto window = weak.get()) {
+      window->PollTransfers();
+    }
+  });
+  poll_timer_.Start();
+}
+
+// Poll the authoritative transfer table and reconcile the list. The
+// RPC reads in-memory state (no share I/O), so the round trip is fast.
+void MainWindow::PollTransfers() {
+  auto const backend = backend_;
+  if (backend == nullptr || !backend->running()) return;
+  try {
+    rivet_app::API api(*backend);
+    auto const snapshot = api.list_transfers().get();
+    auto const weak = get_weak();
+    DispatcherQueue().TryEnqueue([weak, snapshot = std::move(snapshot)] {
+      if (auto window = weak.get()) {
+        for (auto const& transfer : snapshot) {
+          window->UpsertTransfer(transfer);
+        }
+        // Drop rows whose transfers no longer exist (history cleared).
+        std::vector<std::wstring> gone;
+        for (auto const& [id, item] : window->items_) {
+          bool present = false;
+          for (auto const& transfer : snapshot) {
+            if (std::wstring{winrt::to_hstring(transfer.id)} == id) {
+              present = true;
+              break;
+            }
+          }
+          if (!present) gone.push_back(id);
+        }
+        if (!gone.empty()) {
+          auto const rows =
+              window->transfers_list_.ItemsSource()
+                  .as<Windows::Foundation::Collections::IObservableVector<
+                      winrt::RivetHost::TransferItem>>();
+          for (auto const& id : gone) {
+            auto it = window->items_.find(id);
+            if (it == window->items_.end()) continue;
+            uint32_t index = 0;
+            if (rows.IndexOf(it->second, index)) {
+              rows.RemoveAt(index);
+            }
+            window->items_.erase(id);
+          }
+          window->UpdateEmptyState();
+        }
+      }
+    });
+  } catch (...) {
+    // Backend shutting down; the next tick retries.
+  }
 }
 
 void MainWindow::ApplyRelayHealth(bool ok, std::wstring const& message) {
