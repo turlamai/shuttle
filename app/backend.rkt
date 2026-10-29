@@ -384,12 +384,20 @@
   r)
 
 (define (delete-tree-with-retries! path [attempts 3])
-  (let loop ([n attempts])
+  ;; Lazy permission self-heal: on shares where Domain Users can create
+  ;; but not delete, the creator is still the owner and owners can
+  ;; always grant themselves full control — done lazily on the first
+  ;; failed delete, hidden, with a hard timeout. On the default share
+  ;; this never triggers (deletion succeeds outright).
+  (let loop ([n attempts] [healed? #f])
     (cond
       [(not (directory-exists? path)) #t]
       [(delete-directory/files path #:must-exist? #f) #t]
+      [(and (not healed?) (self-grant-full-control! path))
+       (send-log! "lazy grant applied" (path->string path))
+       (loop (sub1 n) #t)]
       [(<= n 1) #f]
-      [else (sleep 0.5) (loop (sub1 n))])))
+      [else (sleep 0.5) (loop (sub1 n) healed?)])))
 
 ;; Copy in 4 MiB chunks, emitting progress at most every 150 ms.
 (define (copy-with-progress! src dest id)
@@ -474,9 +482,10 @@
     (define folder (build-path relay (mailbox-folder-name (folder-stamp) id)))
     (send-log! "folder mkdir")
     (make-directory* folder)
-    (send-log! "self-grant")
-    (self-grant-full-control! folder)
-    (send-log! "self-grant done")
+    ;; No grant at send time: on the default LiDAR share the subtree is
+    ;; deletable by Domain Users anyway, and on create-but-not-delete
+    ;; shares the grant happens lazily at delete-failure (below) — both
+    ;;  keep the send free of any child process, hence no black window.
     ;; Manifest first: a crashed send still shows sender attribution for sweep.
     (write-manifest! folder (this-machine) filename size id stamp)
     (entry-status id 'active "复制到信箱中…")

@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.9]
+
+### Fixed
+
+- **No more black window when sending.** The send-time permission grant
+  (however hidden) still surfaced a terminal on Windows 11's delegated
+  default-terminal setup. It is no longer needed at send time: the
+  creating account is the folder owner and owners can always re-grant
+  themselves, so the grant now happens **lazily at delete-failure**
+  (receiver cleanup and sweep), hidden via a WMI server-side process
+  create with ShowWindow=0 that no delegation overrides. On the default
+  share deletion just works and the grant never runs — sends are
+  completely child-process-free.
+
 ## [0.1.8]
 
 ### Fixed

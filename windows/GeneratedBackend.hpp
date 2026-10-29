@@ -19,7 +19,7 @@ namespace rivet_app {
 inline constexpr char kModuleName[] = "backend";
 inline constexpr char kEntryName[] = "start";
 inline constexpr char kDisplayName[] = "Shuttle";
-inline constexpr char kVersion[] = "0.1.8";
+inline constexpr char kVersion[] = "0.1.9";
 inline constexpr std::int64_t kBuild = 1;
 inline constexpr char kIdentifier[] = "dev.rivet.shuttle";
 inline constexpr char kReleaseChannel[] = "stable";
