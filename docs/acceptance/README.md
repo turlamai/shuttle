@@ -89,3 +89,11 @@ UIA 实测（150% DPI）：Settings 按钮 rect=(737,1065)-(795,1107)，位于�
 
 1. **send-file RPC 结果类型错误**（用户拖文件报 "expected Transfer received Unsupported"）：RPC 体返回了内部 entry hasheq，与声明的 Transfer 记录不符，wire 层校验拒绝——而且发生在传输已入队之后（文件其实已发送，UI 却显示失败）。教训与 0.1.4 同源：**RPC 层（wire 校验）此前从未被测试触达**。修复 = RPC 体抽成 `begin-send!` 返回 `(entry->record entry)`；回归测试用 `record-ref` 断言记录类型（hasheq 会在 record-ref 处 raise）。`init!` 加 `#:force?` 让各自测可重指配置。
 2. **每次发送弹黑色终端窗**：icacls 自愈是控制台子进程，从无控制台的 GUI 宿主派生时 Windows 为其新开可见终端（Win11 表现为 Windows Terminal 闪窗）。修复 = `conhost --hostless` 包裹（headless 控制台），不支持该 flag 的旧 conhost 探测一次后回退直调（闪烁但可用）。
+
+## v0.1.6 启动崩溃修复（2026-10-29，真机复现→修复→真机验证闭环）
+
+用户报告：跑过一次传输后，第二次启动必报 `hash-ref: no value found for key: 'stamp`。根因：账本行（file/ts/msg/ok）被 load-history! 原样灌进传输表，而表条目按 UI schema（filename/stamp/message）消费——list-transfers 排序读 'stamp 无默认即炸。0.1.x 全系列共有，首次传输后必触发。
+
+验证闭环：① 往 %APPDATA%\Shuttle\history.jsonl 植入真实 schema 账本行 → 重启 v0.1.5 → UIA 读到 ErrorBar 同款报错（复现）；② 修复后 v0.1.6 真机重启 → ErrorBar 干净、传输列表两行历史完整渲染（`↓ b.bin 失败 9B · 10-29 18:01` / `↑ a.txt 已送达信箱 5B · 10-29 18:00`，方向/文件名/状态/时间戳映射全对）。
+
+教训（三连击同族）：schema 有两套（账本 vs 条目），写读两端从没被同一个测试走过；「绕过组件的单测不算覆盖」之外再加一条——**用真实产物文件（这里的 history.jsonl）做测试数据**，而不是测试里现造的理想数据。
