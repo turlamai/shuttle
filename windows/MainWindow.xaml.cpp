@@ -729,7 +729,7 @@ void MainWindow::InstallVerifiedUpdate() {
 void MainWindow::OpenReleasesPage() {
   try {
     auto const page =
-        Foundation::Uri{L"https://github.com/turlamai/shuttle/releases/latest"};
+        winrt::Windows::Foundation::Uri{L"https://github.com/turlamai/shuttle/releases/latest"};
     (void)Windows::System::Launcher::LaunchUriAsync(page);
   } catch (...) {
   }
