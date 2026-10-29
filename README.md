@@ -39,6 +39,27 @@ drag-and-drop.
 Both PCs sign in with the same domain account; transfers are disambiguated
 by machine name, so the two sides never fight over a transfer.
 
+### Multi-user deployments (colleagues)
+
+Shuttle is a **pair** tool: the mailbox has no recipient addressing, and a
+receiver claims any transfer not sent by itself. Multiple pairs must
+therefore use **separate relay directories** — one per pair of machines:
+
+```
+Z:\...\04_Software\LiDAR\.shuttle              # your pair
+Z:\...\04_Software\LiDAR\.shuttle-zhangsan     # colleague's pair
+Z:\...\04_Software\LiDAR\.shuttle-lisi         # another colleague
+```
+
+Each person sets their own relay path in Settings on both of their
+machines; everything else (notifications, cleanup, permissions
+self-heal) is pair-local and needs no further setup. Do **not** point two
+pairs at the same directory — the first idle machine will collect the
+other pair's mail. (Colleagues from other departments: make sure the
+chosen directory grants your account write access, and note that files
+sit in the mailbox in transit where anyone with share access can read
+them — the same trust level as the share itself.)
+
 ## Distribution (GitHub Releases, taskly family conventions)
 
 Releases are fully CI-built — **no local MSVC toolchain needed** (the

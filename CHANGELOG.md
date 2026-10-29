@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.1.5]
+
+### Fixed
+
+- **Sending failed with "expected Transfer received Unsupported".** The
+  send-file RPC returned the raw internal entry map while its declared
+  result type is a Transfer record, so the wire layer rejected every
+  send at the last step — often after the transfer had actually been
+  queued. The RPC body now returns a proper Transfer record, is
+  factored out for direct testing, and a regression test asserts the
+  result type.
+- **No more black terminal flashes on every send.** The icacls
+  self-heal is a console child; spawned from the windowed host it
+  popped a visible terminal per send. It now runs inside a headless
+  conhost (plain fallback on systems without the flag).
+
+### Added
+
+- README guidance for multi-user deployments: Shuttle is a pair tool;
+  each pair of machines must use its own relay directory.
+
 ## [0.1.4]
 
 ### Fixed

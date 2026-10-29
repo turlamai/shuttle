@@ -20,7 +20,7 @@
          ;; test hooks (used by the rackunit submodule and self-tests)
          init! do-send! receive-cycle! sweep-own-folders!
          sanitize-filename unique-dest read-manifest
-         this-machine snapshot-transfers)
+         this-machine snapshot-transfers begin-send!)
 
 ;; ---------------------------------------------------------------- contract
 
@@ -256,14 +256,40 @@
 ;; Creator is owner and owners can always grant themselves more; the
 ;; (OI)(CI) inheritance flags propagate full control over the whole
 ;; subtree via the file server — never pass /t, that walks per file.
+;;
+;; icacls is a console child: spawned from our windowed host it pops a
+;; visible terminal on every send. conhost --headless runs it inside a
+;; windowless console; machines whose conhost predates the flag fail
+;; the probe once and fall back to a plain (flashing but working) call.
+(define headless-conhost?
+  (let ([probed #f] [answer #f])
+    (lambda ()
+      (unless probed
+        (set! probed #t)
+        (set! answer
+              (eq? 0 (with-handlers ([exn:fail? (const 1)])
+                       (system*/exit-code
+                        (build-path (find-system-path 'sys-dir) "conhost.exe")
+                        "--headless"
+                        (build-path (find-system-path 'sys-dir) "cmd.exe")
+                        "/c" "exit" "0")))))
+      answer)))
+
+(define (run-quiet! exe . args)
+  (define sys (find-system-path 'sys-dir))
+  (if (headless-conhost?)
+      (apply system*/exit-code
+             (build-path sys "conhost.exe") "--headless"
+             (build-path sys exe) args)
+      (apply system*/exit-code (build-path sys exe) args)))
+
 (define (self-grant-full-control! dir)
   (define user (grant-user))
   (and user
        (eq? 0
             (with-handlers ([exn:fail? (const 1)])
-              (system*/exit-code
-               (build-path (find-system-path 'sys-dir) "icacls.exe")
-               dir "/grant" (string-append user ":(OI)(CI)F"))))))
+              (run-quiet! "icacls.exe" dir "/grant"
+                          (string-append user ":(OI)(CI)F"))))))
 
 (define (delete-tree-with-retries! path [attempts 3])
   (let loop ([n attempts])
@@ -505,7 +531,12 @@
 (define-rpc (ping : String)
   (format "~a / shuttle ready" (this-machine)))
 
-(define-rpc (send-file [path : String] : Transfer)
+;; The send-file body, factored out so tests can exercise the exact
+;; RPC path — including the declared Transfer RESULT type. Returning
+;; the raw entry hasheq here made the wire validation reject every
+;; send ("expected Transfer received Unsupported") after the transfer
+;; had already been queued.
+(define (begin-send! path)
   (unless (file-exists? path)
     (error 'shuttle "文件不存在：~a" path))
   (when (directory-exists? path)
@@ -521,7 +552,10 @@
   (define entry
     (make-entry! id 'send safe-name size 'queued "排队中…" stamp))
   (async-channel-put send-queue (cons id path))
-  entry)
+  (entry->record entry))
+
+(define-rpc (send-file [path : String] : Transfer)
+  (begin-send! path))
 
 (define-rpc (list-transfers : (List Transfer))
   (for/list ([entry (in-list
@@ -566,8 +600,11 @@
 
 (define (init! #:config-dir [dir #f]
                #:relay-dir [relay #f]
-               #:download-dir [downloads #f])
-  (unless ready?
+               #:download-dir [downloads #f]
+               #:force? [force? #f])
+  ;; Self-tests re-point everything per case with #:force? #t; a real
+  ;; process initializes exactly once.
+  (when (or force? (not ready?))
     (set! ready? #t)
     (config-dir-param
      (or dir
@@ -642,7 +679,8 @@
       (string->path "Z:\\19 汽车电子事业部\\研发部\\04_Software\\LiDAR"))
     (define relay (build-path share-root ".shuttle-selftest"))
     (define downloads (make-temporary-file "shuttle-dl~a" 'directory))
-    (init! #:config-dir (make-temporary-file "shuttle-cfg~a" 'directory)
+    (init! #:force? #t
+           #:config-dir (make-temporary-file "shuttle-cfg~a" 'directory)
            #:relay-dir relay #:download-dir downloads)
 
     ;; 1. send a small file under a fake peer identity
@@ -693,12 +731,36 @@
   ;; (cons id path) on the queue and a real sender-loop thread drains
   ;; it. Guards the arity regression where the loop passed only the id
   ;; to do-send! and every send failed at runtime.
+  ;; The RPC result type regression: begin-send! (the send-file body)
+  ;; must return a Transfer RECORD. Returning the raw entry hasheq made
+  ;; the wire layer reject every send at runtime while unit tests that
+  ;; bypassed the RPC body stayed green.
+  (test-case "begin-send! returns a Transfer record"
+    (define tmp (make-temporary-file "shuttle-rpc~a" 'directory))
+    (init! #:force? #t
+           #:config-dir (make-temporary-file "shuttle-cfg~a" 'directory)
+           #:relay-dir (build-path tmp "relay")
+           #:download-dir (build-path tmp "dl"))
+    (define src (make-temporary-file "shuttle-src~a"))
+    (call-with-output-file src #:exists 'truncate
+      (lambda (p) (display "x" p)))
+    (define result (begin-send! (path->string src)))
+    ;; record-ref raises on a non-record; a raw hasheq must not pass.
+    (check-true (string? (record-ref result 'id))
+                "send-file result must be a Transfer record")
+    (check-equal? (record-ref result 'filename)
+                  (path->string (file-name-from-path src)))
+    (check-equal? (record-ref result 'status) (TransferStatus 'queued))
+    (delete-file src)
+    (delete-directory/files tmp))
+
   (define (run-send-loop-selftest!)
     (define share-root
       (string->path "Z:\\19 汽车电子事业部\\研发部\\04_Software\\LiDAR"))
     (define relay (build-path share-root ".shuttle-selftest"))
     (define downloads (make-temporary-file "shuttle-dl~a" 'directory))
-    (init! #:config-dir (make-temporary-file "shuttle-cfg~a" 'directory)
+    (init! #:force? #t
+           #:config-dir (make-temporary-file "shuttle-cfg~a" 'directory)
            #:relay-dir relay #:download-dir downloads)
 
     (define sender-thread (thread sender-loop))
