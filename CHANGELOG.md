@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1]
+
+### Fixed
+
+- A failed update check (portable install, network down) now shows the
+  reason and opens the Releases page instead of failing silently.
+
 ## [0.3.0]
 
 ### Fixed
