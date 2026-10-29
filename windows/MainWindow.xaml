@@ -70,7 +70,7 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- custom caption bar -->
+        <!-- custom caption bar: identity only; system buttons own the corner -->
         <Grid x:Name="CaptionBar" Grid.Row="0" Padding="16,0,12,0">
             <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                 <TextBlock
@@ -80,15 +80,6 @@
                     x:Name="CaptionMachine"
                     FontSize="12" Opacity="0.55" VerticalAlignment="Center"/>
             </StackPanel>
-            <Button
-                x:Name="SettingsButton"
-                HorizontalAlignment="Right" VerticalAlignment="Top"
-                Height="32"
-                Style="{ThemeResource SubtleButtonStyle}"
-                AutomationProperties.Name="Settings"
-                ToolTipService.ToolTip="设置">
-                <FontIcon FontFamily="{ThemeResource SymbolThemeFontFamily}" Glyph="&#xE713;" FontSize="14"/>
-            </Button>
         </Grid>
 
         <Grid Grid.Row="1" Padding="24,4,24,16" RowSpacing="12">
@@ -155,10 +146,20 @@
                     TextAlignment="Center"/>
             </Grid>
 
-            <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="8">
-                <Ellipse x:Name="HealthDot" Width="8" Height="8"/>
-                <TextBlock x:Name="HealthText" FontSize="12" Opacity="0.7"/>
-            </StackPanel>
+            <Grid Grid.Row="4">
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Ellipse x:Name="HealthDot" Width="8" Height="8"/>
+                    <TextBlock x:Name="HealthText" FontSize="12" Opacity="0.7"/>
+                </StackPanel>
+                <Button
+                    x:Name="SettingsButton"
+                    HorizontalAlignment="Right"
+                    Style="{ThemeResource SubtleButtonStyle}"
+                    AutomationProperties.Name="Settings"
+                    ToolTipService.ToolTip="设置">
+                    <FontIcon FontFamily="{ThemeResource SymbolThemeFontFamily}" Glyph="&#xE713;" FontSize="14"/>
+                </Button>
+            </Grid>
         </Grid>
     </Grid>
 </Window>

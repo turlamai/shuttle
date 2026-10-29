@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.3]
+
+### Changed
+
+- **Settings moved out of the title bar.** The gear button competed with
+  the system Min/Max/Close corner — no amount of spacing makes that
+  pattern feel native. The caption bar now carries identity only
+  (product name + machine), and the settings entry lives in the footer
+  status row (health dot left, gear right), matching compact utility
+  conventions. The DPI-inset machinery from 0.1.1/0.1.2 is gone with it.
+
 ## [0.1.2]
 
 ### Fixed
