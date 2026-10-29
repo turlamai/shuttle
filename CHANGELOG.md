@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.6]
+
+### Fixed
+
+- **The app errored on every launch after a completed transfer**
+  ("hash-ref: no value found for key: 'stamp"). The ledger written by
+  each transfer uses the ledger schema (file/ts/msg) but was loaded
+  verbatim into the transfer table whose consumers expect the UI
+  schema (filename/stamp/message) — the first restart after any real
+  transfer crashed list-transfers. Ledger rows are now normalized into
+  proper entries on load (status derived from ok, stamp from ts), rows
+  without an id are skipped, and the sort key defaults defensively.
+  Reproduced locally with the exact user-visible error before the fix;
+  a regression test feeds real ledger rows through the startup path.
+
 ## [0.1.5]
 
 ### Fixed

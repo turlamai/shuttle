@@ -20,7 +20,8 @@
          ;; test hooks (used by the rackunit submodule and self-tests)
          init! do-send! receive-cycle! sweep-own-folders!
          sanitize-filename unique-dest read-manifest
-         this-machine snapshot-transfers begin-send!)
+         this-machine snapshot-transfers begin-send!
+         list-transfers-records)
 
 ;; ---------------------------------------------------------------- contract
 
@@ -195,6 +196,31 @@
     (call-with-output-file (history-file) #:exists 'append
       (lambda (p) (write-json entry p) (newline p)))))
 
+;; History rows use the LEDGER schema (file/ts/msg/ok, written by
+;; append-history!), while transfer entries use the UI schema
+;; (filename/stamp/message/progress/status). Loading rows verbatim made
+;; every restart after a first transfer crash list-transfers (the sort
+;; key reads 'stamp). Map ledger -> entry here; rows without an id are
+;; skipped entirely.
+(define (history->entry j)
+  (define id (hash-ref j 'id #f))
+  (unless (string? id)
+    (error 'load-history! "ledger row without id"))
+  (define direction
+    (let ([d (hash-ref j 'direction "send")])
+      (if (member d '("send" "receive")) (string->symbol d) 'send)))
+  (define ok (hash-ref j 'ok #f))
+  (define size (hash-ref j 'size 0))
+  (hasheq 'id id
+          'direction direction
+          'filename (hash-ref j 'file "")
+          'size size
+          'progress size
+          'status (cond [ok (if (eq? direction 'receive) 'received 'sent)]
+                        [else 'failed])
+          'message (hash-ref j 'msg "")
+          'stamp (hash-ref j 'ts "")))
+
 (define (load-history!)
   (with-handlers ([exn:fail? void])
     (define lines
@@ -205,10 +231,11 @@
             (with-handlers ([exn:fail? (const #f)])
               (read-json (open-input-string line)))))))
     (for ([j (in-list lines)] #:when (hash? j))
-      (define id (hash-ref j 'id #f))
-      (when (string? id)
-        (hash-set! consumed-ids id #t)
-        (hash-set! transfers-table id j)))))
+      (define entry
+        (with-handlers ([exn:fail? (const #f)]) (history->entry j)))
+      (when entry
+        (hash-set! consumed-ids (hash-ref entry 'id) #t)
+        (hash-set! transfers-table (hash-ref entry 'id) entry)))))
 
 ;; ---------------------------------------------------------------- transfer table
 
@@ -557,11 +584,16 @@
 (define-rpc (send-file [path : String] : Transfer)
   (begin-send! path))
 
-(define-rpc (list-transfers : (List Transfer))
+;; The list-transfers body, factored out for tests: the sort key must
+;; default because entries loaded from the ledger predate normalization.
+(define (list-transfers-records)
   (for/list ([entry (in-list
                      (sort (snapshot-transfers) string>?
-                           #:key (lambda (e) (hash-ref e 'stamp))))])
+                           #:key (lambda (e) (hash-ref e 'stamp ""))))])
     (entry->record entry)))
+
+(define-rpc (list-transfers : (List Transfer))
+  (list-transfers-records))
 
 (define-rpc (clear-history : Void)
   (call-with-semaphore state-lock
@@ -606,6 +638,7 @@
   ;; process initializes exactly once.
   (when (or force? (not ready?))
     (set! ready? #t)
+    (hash-clear! transfers-table)
     (config-dir-param
      (or dir
          (let ([appdata (getenv "APPDATA")])
@@ -752,6 +785,41 @@
                   (path->string (file-name-from-path src)))
     (check-equal? (record-ref result 'status) (TransferStatus 'queued))
     (delete-file src)
+    (delete-directory/files tmp))
+
+  ;; The startup crash regression (v0.1.5): ledger rows carry the
+  ;; ledger schema (file/ts/msg) and never 'stamp. load-history! must
+  ;; normalize them into entries so list-transfers' sort and record
+  ;; projection survive a restart after any real transfer; rows
+  ;; without an id are skipped.
+  (test-case "ledger history loads into normalized entries"
+    (define cfg (make-temporary-file "shuttle-ledger~a" 'directory))
+    (define tmp (make-temporary-file "shuttle-ledger-relay~a" 'directory))
+    (call-with-output-file (build-path cfg "history.jsonl") #:exists 'truncate
+      (lambda (p)
+        (displayln "{\"id\":\"r1\",\"direction\":\"send\",\"file\":\"a.zip\",\"size\":5,\"ts\":\"2026-10-29 18:00:00\",\"ok\":true,\"msg\":\"已发送\"}" p)
+        (displayln "{\"id\":\"r2\",\"direction\":\"receive\",\"file\":\"b.bin\",\"size\":9,\"ts\":\"2026-10-29 18:01:00\",\"ok\":false,\"msg\":\"校验不一致\"}" p)
+        (displayln "{\"direction\":\"receive\",\"file\":\"orphan.bin\"}" p)))
+    (init! #:force? #t
+           #:config-dir cfg
+           #:relay-dir (build-path tmp "relay")
+           #:download-dir (build-path tmp "dl"))
+    (define records (list-transfers-records))
+    (check-equal? (length records) 2 "orphan row skipped, two normalized")
+    (define (record-with-id id)
+      (for/first ([r (in-list records)]
+                  #:when (string=? (record-ref r 'id) id))
+        r))
+    (define r1 (record-with-id "r1"))
+    (check-true (and r1 #t) "normalized row r1 must be present")
+    (check-equal? (record-ref r1 'filename) "a.zip")
+    (check-equal? (record-ref r1 'stamp) "2026-10-29 18:00:00")
+    (check-equal? (record-ref r1 'status) (TransferStatus 'sent))
+    (define r2 (record-with-id "r2"))
+    (check-true (and r2 #t) "normalized row r2 must be present")
+    (check-equal? (record-ref r2 'status) (TransferStatus 'failed))
+    (check-equal? (record-ref r2 'direction) (Direction 'receive))
+    (delete-directory/files cfg)
     (delete-directory/files tmp))
 
   (define (run-send-loop-selftest!)
