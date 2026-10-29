@@ -16,6 +16,7 @@
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Storage.Pickers.h>
 #include <winrt/Windows.Storage.h>
+#include <winrt/Windows.System.h>
 
 #include <objidl.h>
 #include <shobjidl_core.h>
@@ -915,8 +916,13 @@ void MainWindow::ShowSettingsDialog() {
                 set_status(tr_hstring("update.uptodate"));
                 set_button(tr_hstring("update.check"), true);
               } else if (phase == "error") {
-                auto const message = phase_api.updater_message().get();
-                set_status(hstring{winrt::to_hstring(message)});
+                // Private repository: the manifest URL needs
+                // authentication the updater does not carry. Fall back
+                // to opening the releases page.
+                set_status(tr_hstring("update.openreleases"));
+                auto const page = winrt::Uri{
+                    L"https://github.com/turlamai/shuttle/releases/latest"};
+                (void)Windows::System::Launcher::LaunchUriAsync(page);
                 set_button(tr_hstring("update.check"), true);
               } else {
                 set_status(hstring{winrt::to_hstring(phase)});

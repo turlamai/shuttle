@@ -35,6 +35,7 @@
   "update.downloading": "正在下载更新…",
   "update.idle": "更新",
   "update.install": "安装并重启",
+  "update.openreleases": "已打开 Releases 页面，请下载最新 MSI 安装",
   "update.uptodate": "已是最新版本",
   "update.working": "请稍候…"
 }

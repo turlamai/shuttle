@@ -35,6 +35,7 @@
   "update.downloading": "Downloading update…",
   "update.idle": "Updates",
   "update.install": "Install and restart",
+  "update.openreleases": "Opened the Releases page — grab the latest MSI there",
   "update.uptodate": "You are up to date",
   "update.working": "Please wait…"
 }
