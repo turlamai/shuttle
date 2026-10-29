@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.1]
+
+### Fixed
+
+- **The settings gear no longer overlaps the system Min/Max/Close
+  buttons.** With content extending into the title bar, the caption bar
+  now reserves the system caption-button inset (read live per DPI, with a
+  sane pre-layout fallback) so the gear sits left of the buttons instead
+  of underneath them; the system buttons' chrome is blended transparent
+  into the Mica backdrop.
+- **Compact utility-window default size.** The window now opens at
+  460×660 logical pixels (DPI-scaled) instead of the platform default.
+
 ## [0.1.0] — initial release
 
 - **Mailbox-style direct transfer**: drop a file on machine A; it travels

@@ -37,6 +37,7 @@ struct MainWindow : MainWindowT<MainWindow> {
   void SetupLocalization();
   void SetupWindowBehavior();
   void SetupTray();
+  void UpdateCaptionInset();
   void ApplyRelayHealth(bool ok, std::wstring const& message);
   void UpsertTransfer(rivet_app::Transfer const& transfer);
   void UpdateEmptyState();

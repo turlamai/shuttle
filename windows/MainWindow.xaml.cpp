@@ -174,6 +174,18 @@ MainWindow::MainWindow() {
   ExtendsContentIntoTitleBar(true);
   SetTitleBar(CaptionBar());
 
+  // The system Min/Max/Close buttons overlay the top-right once content
+  // extends into the title bar; blend their chrome into the backdrop and
+  // keep the caption bar's right edge clear of them (the gear lives there).
+  {
+    auto const transparent = winrt::Windows::UI::Color{0, 0, 0, 0};
+    auto const title_bar = AppWindow().TitleBar();
+    title_bar.ButtonBackgroundColor(transparent);
+    title_bar.ButtonInactiveBackgroundColor(transparent);
+  }
+  SizeChanged([this](auto const&, auto const&) { UpdateCaptionInset(); });
+  UpdateCaptionInset();
+
   // Compact utility window: narrow column, room for ~8 transfer rows.
   // AppWindow.Resize takes physical pixels; scale the logical 460x660.
   {
@@ -216,6 +228,20 @@ MainWindow::MainWindow() {
     // window-close path above still runs the orderly shutdown.
   }
   InitializeBackendAsync();
+}
+
+void MainWindow::UpdateCaptionInset() {
+  // RightInset is the system-reserved caption-button width; it reads 0
+  // before the first layout, so fall back to the known Min+Max+Close
+  // width at 100% scale and let SizeChanged refine it.
+  double const scale =
+      static_cast<double>(::GetDpiForWindow(WindowHandle())) / 96.0;
+  double inset = static_cast<double>(AppWindow().TitleBar().RightInset());
+  if (inset <= 0) {
+    inset = 138.0 * scale;
+  }
+  CaptionBar().Padding(
+      winrt::Microsoft::UI::Xaml::ThicknessHelper::FromLengths(0, 0, inset + 8, 0));
 }
 
 void MainWindow::SetupLocalization() {
