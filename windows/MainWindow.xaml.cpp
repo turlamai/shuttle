@@ -707,7 +707,7 @@ void MainWindow::PollUpdatePhase(
                          L"%"});
     }
   } catch (std::exception const& e) {
-    ShowError(e.what());
+    ShowError(winrt::to_hstring(e.what()));
     StopUpdateTimer();
   }
 }
@@ -722,14 +722,14 @@ void MainWindow::InstallVerifiedUpdate() {
         L"shuttle", std::filesystem::path{winrt::to_hstring(msi).c_str()},
         executable_path().wstring());
   } catch (std::exception const& e) {
-    ShowError(e.what());
+    ShowError(winrt::to_hstring(e.what()));
   }
 }
 
 void MainWindow::OpenReleasesPage() {
   try {
     auto const page =
-        winrt::Uri{L"https://github.com/turlamai/shuttle/releases/latest"};
+        Foundation::Uri{L"https://github.com/turlamai/shuttle/releases/latest"};
     (void)Windows::System::Launcher::LaunchUriAsync(page);
   } catch (...) {
   }
