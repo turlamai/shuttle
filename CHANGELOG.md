@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.7]
+
+### Fixed
+
+- **Sending hung forever at "Queued" with a black terminal window.**
+  The v0.1.5 attempt to run the icacls permission grant inside a
+  headless conhost hung the sender thread on Windows 11 (whose default
+  terminal delegation does not honor the flag) and popped a black
+  window titled after the host process. The grant now runs **in
+  process** through advapi32's ACL API
+  (GetNamedSecurityInfoW / SetEntriesInAclW / SetNamedSecurityInfoW):
+  no child process, no window, no hang, and the same (OI)(CI)F result
+  verified against the real share. A plain icacls call remains as the
+  fallback if the FFI module is ever unavailable.
+
 ## [0.1.6]
 
 ### Fixed

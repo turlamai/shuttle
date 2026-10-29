@@ -13,6 +13,7 @@
          racket/string
          racket/system
          racket/async-channel
+         ffi/unsafe
          json
          rivet/backend)
 
@@ -284,39 +285,100 @@
 ;; (OI)(CI) inheritance flags propagate full control over the whole
 ;; subtree via the file server — never pass /t, that walks per file.
 ;;
-;; icacls is a console child: spawned from our windowed host it pops a
-;; visible terminal on every send. conhost --headless runs it inside a
-;; windowless console; machines whose conhost predates the flag fail
-;; the probe once and fall back to a plain (flashing but working) call.
-(define headless-conhost?
-  (let ([probed #f] [answer #f])
-    (lambda ()
-      (unless probed
-        (set! probed #t)
-        (set! answer
-              (eq? 0 (with-handlers ([exn:fail? (const 1)])
-                       (system*/exit-code
-                        (build-path (find-system-path 'sys-dir) "conhost.exe")
-                        "--headless"
-                        (build-path (find-system-path 'sys-dir) "cmd.exe")
-                        "/c" "exit" "0")))))
-      answer)))
-
-(define (run-quiet! exe . args)
-  (define sys (find-system-path 'sys-dir))
-  (if (headless-conhost?)
-      (apply system*/exit-code
-             (build-path sys "conhost.exe") "--headless"
-             (build-path sys exe) args)
-      (apply system*/exit-code (build-path sys exe) args)))
-
-(define (self-grant-full-control! dir)
+;; The grant runs IN PROCESS through advapi32's ACL API (v0.1.7): the
+;; icacls subprocess popped a visible black terminal on every send, and
+;; the conhost --headless wrapper hung the sender thread on Windows 11
+;; with terminal delegation. If ffi/unsafe is unavailable in a staged
+;; runtime, fall back to a plain icacls call (flashes, but works).
+(define (icacls-grant! dir)
   (define user (grant-user))
   (and user
        (eq? 0
             (with-handlers ([exn:fail? (const 1)])
-              (run-quiet! "icacls.exe" dir "/grant"
-                          (string-append user ":(OI)(CI)F"))))))
+              (apply system*/exit-code
+                     (build-path (find-system-path 'sys-dir) "icacls.exe")
+                     dir "/grant" (string-append user ":(OI)(CI)F"))))))
+
+(define (ffi-self-grant! dir)
+  (define user (grant-user))
+  (unless user
+    (error 'self-grant "no domain user"))
+  (define advapi (ffi-lib "Advapi32.dll"))
+  (define GetNamedSecurityInfoW
+    (get-ffi-obj "GetNamedSecurityInfoW" advapi
+      (_fun _string/utf-16 _uint32 _uint32
+            (_ptr o _pointer) (_ptr o _pointer)
+            (dacl : (_ptr o _pointer)) (_ptr o _pointer) (sd : (_ptr o _pointer))
+            -> (r : _uint32)
+            -> (values r dacl sd))))
+  (define SetEntriesInAclW
+    (get-ffi-obj "SetEntriesInAclW" advapi
+      (_fun _uint32 _pointer _pointer
+            (new-acl : (_ptr o _pointer))
+            -> (r : _uint32)
+            -> (values r new-acl))))
+  (define SetNamedSecurityInfoW
+    (get-ffi-obj "SetNamedSecurityInfoW" advapi
+      (_fun _string/utf-16 _uint32 _uint32 _pointer _pointer _pointer _pointer
+            -> _uint32)))
+  (define LocalFree
+    (get-ffi-obj "LocalFree" (ffi-lib "Kernel32.dll") (_fun _pointer -> _pointer)))
+
+  ;; EXPLICIT_ACCESS_W (40 bytes on x64): FILE_ALL_ACCESS, GRANT_ACCESS,
+  ;; OBJECT|CONTAINER_INHERIT, TRUSTEE_IS_NAME for the current account.
+  (define FILE_ALL_ACCESS #x1F01FF)
+  (define GRANT_ACCESS 1)
+  (define INHERIT_ACE 3) ; OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE
+  (define SE_FILE_OBJECT 1)
+  (define DACL_SECURITY_INFORMATION 4)
+
+  ;; ffi/unsafe has _string/utf-16 (used above) but no string->utf16
+  ;; value conversion; encode the trustee name by hand. Domain account
+  ;; names are ASCII/BMP — surrogate pairs are rejected defensively.
+  (define (string->utf16le s)
+    (define cps (for/list ([c (in-string s)]) (char->integer c)))
+    (for ([cp (in-list cps)])
+      (when (> cp #xFFFF)
+        (error 'self-grant "non-BMP character in account name")))
+    (define b (make-bytes (* 2 (add1 (length cps))))) ; trailing UTF-16 NUL
+    (for ([cp (in-list cps)] [i (in-naturals)])
+      (bytes-set! b (* 2 i) (bitwise-and cp #xFF))
+      (bytes-set! b (add1 (* 2 i)) (bitwise-and (arithmetic-shift cp -8) #xFF)))
+    b)
+
+  (define name-bytes (string->utf16le user))
+  (define name-mem (malloc (bytes-length name-bytes) 'automatic))
+  (memcpy name-mem 0 name-bytes 0 (bytes-length name-bytes) _byte)
+
+  (define ea (make-bytes 40 0))
+  (ptr-set! ea _uint32 0 FILE_ALL_ACCESS)
+  (ptr-set! ea _uint32 4 GRANT_ACCESS)
+  (ptr-set! ea _uint32 8 INHERIT_ACE)
+  ;; TRUSTEE_W at offset 16: pTrustee(16) null, TrusteeForm(24)=1
+  ;; (TRUSTEE_IS_NAME), TrusteeType(28)=0 (UNKNOWN), ptstrName(32).
+  (ptr-set! ea _pointer 16 #f)
+  (ptr-set! ea _uint32 24 1)
+  (ptr-set! ea _uint32 28 0)
+  (ptr-set! ea _pointer 32 name-mem)
+
+  (define-values (g-code g-dacl g-sd) (GetNamedSecurityInfoW dir SE_FILE_OBJECT DACL_SECURITY_INFORMATION))
+  (unless (zero? g-code)
+    (LocalFree g-sd)
+    (error 'self-grant "GetNamedSecurityInfoW failed: ~a" g-code))
+  (define-values (e-code new-dacl) (SetEntriesInAclW 1 ea g-dacl))
+  (when (and (not (zero? e-code)) g-sd) (LocalFree g-sd))
+  (unless (zero? e-code)
+    (when g-sd (LocalFree g-sd))
+    (when new-dacl (LocalFree new-dacl))
+    (error 'self-grant "SetEntriesInAclW failed: ~a" e-code))
+  (define s-code (SetNamedSecurityInfoW dir SE_FILE_OBJECT DACL_SECURITY_INFORMATION #f #f new-dacl #f))
+  (when g-sd (LocalFree g-sd))
+  (when new-dacl (LocalFree new-dacl))
+  (zero? s-code))
+
+(define (self-grant-full-control! dir)
+  (with-handlers ([exn:fail? (lambda (e) (icacls-grant! dir))])
+    (ffi-self-grant! dir)))
 
 (define (delete-tree-with-retries! path [attempts 3])
   (let loop ([n attempts])
