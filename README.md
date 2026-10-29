@@ -2,7 +2,7 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
-[![release](https://img.shields.io/github/v/release/turinglambdaai/shuttle)](https://github.com/turinglambdaai/shuttle/releases/latest) ![platform](https://img.shields.io/badge/platform-Windows-lightgrey) ![built with](https://img.shields.io/badge/built%20with-Rivet-9333ea) [![CI](https://github.com/turinglambdaai/shuttle/actions/workflows/ci.yml/badge.svg)](https://github.com/turinglambdaai/shuttle/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/turlamai/shuttle)](https://github.com/turlamai/shuttle/releases/latest) ![platform](https://img.shields.io/badge/platform-Windows-lightgrey) ![built with](https://img.shields.io/badge/built%20with-Rivet-9333ea) [![CI](https://github.com/turlamai/shuttle/actions/workflows/ci.yml/badge.svg)](https://github.com/turlamai/shuttle/actions/workflows/ci.yml)
 
 "Direct" file transfer between two company Windows PCs. Drop a file on
 machine A, machine B receives it automatically with a Windows toast — it
@@ -126,7 +126,7 @@ to be mapped, so CI runs only the pure units.
 - **Health at a glance**: a red/green dot mirrors mailbox reachability.
 
 Stack: Racket backend (all product logic) + WinUI 3 native host
-(presentation and OS integration) over [rivet](https://github.com/turinglambdaai/rivet)
+(presentation and OS integration) over [rivet](https://github.com/turlamai/rivet)
 typed RPC.
 
 ## Repository layout
