@@ -231,14 +231,16 @@ MainWindow::MainWindow() {
 }
 
 void MainWindow::UpdateCaptionInset() {
-  // RightInset is the system-reserved caption-button width; it reads 0
-  // before the first layout, so fall back to the known Min+Max+Close
-  // width at 100% scale and let SizeChanged refine it.
+  // RightInset is system-reserved caption-button width in PHYSICAL
+  // pixels; XAML thickness is DIPs — divide by the window DPI, and fall
+  // back to the known Min+Max+Close width (logical) before first layout.
   double const scale =
       static_cast<double>(::GetDpiForWindow(WindowHandle())) / 96.0;
   double inset = static_cast<double>(AppWindow().TitleBar().RightInset());
-  if (inset <= 0) {
-    inset = 138.0 * scale;
+  if (inset > 0) {
+    inset /= scale;
+  } else {
+    inset = 138.0;
   }
   CaptionBar().Padding(
       winrt::Microsoft::UI::Xaml::ThicknessHelper::FromLengths(0, 0, inset + 8, 0));

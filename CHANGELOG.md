@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.2]
+
+### Fixed
+
+- **Caption polish at high DPI.** The gear inset now converts the
+  system caption-button width from physical pixels to DIPs (it was
+  double-scaled on >100% displays), and the gear aligns to the top
+  32-DIP system caption-button band instead of floating low.
+
 ## [0.1.1]
 
 ### Fixed

@@ -82,7 +82,8 @@
             </StackPanel>
             <Button
                 x:Name="SettingsButton"
-                HorizontalAlignment="Right" VerticalAlignment="Center"
+                HorizontalAlignment="Right" VerticalAlignment="Top"
+                Height="32"
                 Style="{ThemeResource SubtleButtonStyle}"
                 AutomationProperties.Name="Settings"
                 ToolTipService.ToolTip="设置">
