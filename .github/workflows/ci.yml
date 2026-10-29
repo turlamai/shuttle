@@ -30,8 +30,8 @@ jobs:
       - name: Install Rivet (pinned, with keel below the tests/documentation collision)
         shell: pwsh
         run: |
-          raco pkg install --auto --no-docs 'https://github.com/turinglambdaai/keel.git#76a5b9fdd01bde284d310ff5c05ec73972f64201'
-          raco pkg install --auto --no-docs 'https://github.com/turinglambdaai/rivet.git#${{ env.RIVET_PIN }}'
+          raco pkg install --auto --no-docs 'https://github.com/turlamai/keel.git#76a5b9fdd01bde284d310ff5c05ec73972f64201'
+          raco pkg install --auto --no-docs 'https://github.com/turlamai/rivet.git#${{ env.RIVET_PIN }}'
       - name: Schema contract gate
         run: raco rivet schema check rivet-schema.json --json
       # The runner's MSVC toolchain is the release compiler; local
