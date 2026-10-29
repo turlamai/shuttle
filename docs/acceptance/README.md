@@ -105,3 +105,11 @@ UIA 实测（150% DPI）：Settings 按钮 rect=(737,1065)-(795,1107)，位于�
 修复：**彻底移除子进程方案**，授权改为进程内 advapi32 FFI（GetNamedSecurityInfoW → SetEntriesInAclW → SetNamedSecurityInfoW，EXPLICIT_ACCESS 手工构造，TRUSTEE_IS_NAME 域账号）。无子进程 = 无窗口 = 无挂点。ffi/unsafe 经 `raco ctool --mods` 全程序编译打进 core.zo（FFI 内建于 CS 运行时，无需 stage 额外 collection）；FFI 不可用时回退直调 icacls（闪窗但可用，v0.1.4 实证不挂）。
 
 验证：真实共享盘全链路自测通过——FFI 授权后 payload 继承 (I)(F) 断言过、远端清理成功。教训：**GUI 宿主调用控制台子进程的「隐藏」技巧（conhost --headless、-WindowStyle）在 Win11 默认终端委托时代都不可靠；进程内 API（FFI）才是正解**。UI 自动化点击 WinUI 3 的 Tapped（mouse_event 合成单击/双击）不可靠，按钮类交互验收应给控件加 AutomationProperties 或用 InvokePattern。
+
+## v0.1.8 发送挂死终局修复（2026-10-29）
+
+用户真机：v0.1.7 黑窗消失但仍卡「排队中」。逐步计时复现 + 残留信箱文件夹（空壳：正好死在授权步）+ 新增的分步诊断日志（send-debug.log）三线合围，定性 v0.1.7 FFI 方案的致命缺陷：**Racket CS 的 FFI 调用在「原线程」执行，而 WinUI 宿主的消息循环占据原线程不让路——后台线程的任何 FFI 调用永久等待**。REPL（原线程空闲）5ms 成功、GUI/selftest（后台线程）必挂，完全吻合。且 kill-thread 无法强杀卡在 FFI 里的线程，超时保护自身也挂。
+
+修复：① 授权改 **wscript 隐藏执行 icacls**（wscript 是 GUI 子系统宿主，从 GUI 进程 spawn 不分配控制台；生成 .js 以 window style 0 隐藏运行并等待退出码）——纯子进程，不经原线程；② 所有外部调用加 **5-10 秒硬超时**（call-with-hard-timeout：worker 线程 + sync/timeout）；③ **新增 send-debug.log 分步诊断日志**（每步一行，用户机器上的挂死会留下精确停止点——本轮靠它一步定位 apply 参数错误）；④ **UI 轮询**：后台线程的事件到不了 UI（事件发射器在 RPC 线程），列表改为 1.5s 轮询权威表全量调和——「排队中」不动、历史清空不刷新、收到文件不显示三个症状一并根治。
+
+验证：真实共享盘全链路自测通过（诊断日志记录 grant ok → copy → send complete 全链，(I)(F) 继承断言过、清理成功、零残留）；CI + Release 全绿。教训：**跨进程/运行时边界的能力（FFI/子进程/事件）必须先在目标线程环境实证，REPL 通过不等于宿主通过；给用户交付前先交付可观测性**。
