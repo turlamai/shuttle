@@ -97,3 +97,11 @@ UIA 实测（150% DPI）：Settings 按钮 rect=(737,1065)-(795,1107)，位于�
 验证闭环：① 往 %APPDATA%\Shuttle\history.jsonl 植入真实 schema 账本行 → 重启 v0.1.5 → UIA 读到 ErrorBar 同款报错（复现）；② 修复后 v0.1.6 真机重启 → ErrorBar 干净、传输列表两行历史完整渲染（`↓ b.bin 失败 9B · 10-29 18:01` / `↑ a.txt 已送达信箱 5B · 10-29 18:00`，方向/文件名/状态/时间戳映射全对）。
 
 教训（三连击同族）：schema 有两套（账本 vs 条目），写读两端从没被同一个测试走过；「绕过组件的单测不算覆盖」之外再加一条——**用真实产物文件（这里的 history.jsonl）做测试数据**，而不是测试里现造的理想数据。
+
+## v0.1.7 发送挂死 + 黑窗修复（2026-10-29）
+
+用户真机：拖文件永远停在「排队中」，弹出标题为 RivetHost.exe 的黑色终端窗。根因：v0.1.5 引入的 `conhost --headless` 包装在 Win11 默认终端委托（Windows Terminal）下不生效——GUI 宿主派生 conhost 时终端被委托给 WT，黑窗照弹（标题显示宿主进程名），且发送线程在该路径上被挂死。隔离复现显示 probe 本身能退出但输出 VT 序列泄漏、cmd 语法错误——该技巧在委托环境下根本不可靠。
+
+修复：**彻底移除子进程方案**，授权改为进程内 advapi32 FFI（GetNamedSecurityInfoW → SetEntriesInAclW → SetNamedSecurityInfoW，EXPLICIT_ACCESS 手工构造，TRUSTEE_IS_NAME 域账号）。无子进程 = 无窗口 = 无挂点。ffi/unsafe 经 `raco ctool --mods` 全程序编译打进 core.zo（FFI 内建于 CS 运行时，无需 stage 额外 collection）；FFI 不可用时回退直调 icacls（闪窗但可用，v0.1.4 实证不挂）。
+
+验证：真实共享盘全链路自测通过——FFI 授权后 payload 继承 (I)(F) 断言过、远端清理成功。教训：**GUI 宿主调用控制台子进程的「隐藏」技巧（conhost --headless、-WindowStyle）在 Win11 默认终端委托时代都不可靠；进程内 API（FFI）才是正解**。UI 自动化点击 WinUI 3 的 Tapped（mouse_event 合成单击/双击）不可靠，按钮类交互验收应给控件加 AutomationProperties 或用 InvokePattern。
