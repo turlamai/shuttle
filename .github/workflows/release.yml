@@ -43,7 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${{ secrets.UPDATE_ED25519_PRIVATE_KEY }}" || { echo "::error::UPDATE_ED25519_PRIVATE_KEY is missing"; exit 1; }
-          printf '%s' "${{ secrets.UPDATE_ED25519_PRIVATE_KEY }}" > "$RUNNER_TEMP/update-private.der"
+          base64 -d <<< "${{ secrets.UPDATE_ED25519_PRIVATE_KEY }}" > "$RUNNER_TEMP/update-private.der"
           openssl pkey -inform DER -in "$RUNNER_TEMP/update-private.der" -noout 2>/dev/null || {
             echo "::error::update signing key is not a valid DER private key"; exit 1; }
       - name: Version preflight (tag == rivet.rktd == generated client; annotated tag required)
