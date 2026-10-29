@@ -15,7 +15,7 @@ concurrency:
 # Single source of truth for the rivet pin; every install step below
 # references this so a bump is one edit, not a grep-replace across jobs.
 env:
-  RIVET_PIN: 455b87be95fa7034b5cd242db27567d87d39b032
+  RIVET_PIN: 08da1f6dfc668ecbf5ef17b449b7005bc1b77528
 
 jobs:
   windows:
