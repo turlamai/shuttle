@@ -863,8 +863,10 @@ void MainWindow::ShowSettingsDialog() {
           [weak, run, set_status, set_button](rivet_app::Result<std::string>) {
             auto window2 = weak.get();
             if (window2 == nullptr) return;
+            auto backend2 = window2->backend_;
+            if (backend2 == nullptr || !backend2->running()) return;
             try {
-              rivet_app::API phase_api(*backend);
+              rivet_app::API phase_api(*backend2);
               auto const phase = phase_api.updater_phase().get();
               if (phase == "available") {
                 run->available_version =
@@ -887,9 +889,6 @@ void MainWindow::ShowSettingsDialog() {
                       set_status(hstring{L"下载中 " +
                                          std::to_wstring(percent) + L"%"});
                     } else if (phase2 == "downloaded") {
-                      if (auto timer_window = weak.get()) {
-                        // stop handled by timer lifetime below
-                      }
                       run->install_armed = true;
                       set_status(hstring{L"已就绪 " + run->available_version});
                       set_button(
