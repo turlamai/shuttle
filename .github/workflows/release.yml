@@ -38,15 +38,27 @@ jobs:
       - name: Install WiX (v5; rivet's MSI toolchain)
         run: dotnet tool install --global wix --version 5.0.2
         shell: bash
+      - name: Restore update signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${{ secrets.UPDATE_ED25519_PRIVATE_KEY }}" || { echo "::error::UPDATE_ED25519_PRIVATE_KEY is missing"; exit 1; }
+          printf '%s' "${{ secrets.UPDATE_ED25519_PRIVATE_KEY }}" > "$RUNNER_TEMP/update-private.der"
+          openssl pkey -inform DER -in "$RUNNER_TEMP/update-private.der" -noout 2>/dev/null || {
+            echo "::error::update signing key is not a valid DER private key"; exit 1; }
       - name: Version preflight (tag == rivet.rktd == generated client; annotated tag required)
         shell: bash
         run: bash scripts/check-release-version.sh "${{ github.ref_name }}"
       # MSI (human installer) + portable zip + SBOM + notices, launch
       # smoke included. Shuttle ships no in-app update feed, so the
       # release is built without an update manifest.
-      - name: Release (MSI + portable zip)
+      - name: Release (signed MSI + portable zip + signed update manifest)
         shell: pwsh
-        run: raco rivet release --without-updates --development
+        env:
+          RIVET_UPDATE_BASE_URL: https://github.com/turlamai/shuttle/releases/latest/download
+          RIVET_UPDATE_PRIVATE_KEY: ${{ runner.temp }}/update-private.der
+          RIVET_UPDATE_KEY_ID: update-2026-10
+        run: raco rivet release --development
       - name: Family naming + checksums
         shell: bash
         run: |
@@ -115,7 +127,7 @@ jobs:
           # text form.
           cat *.sha256 | sed 's/ \*/  /' > SHA256SUMS
           uploads=( )
-          for pattern in *.zip *.msi *.sha256; do
+          for pattern in *.zip *.msi *.sha256 update-stable.json; do
             uploads+=( "$pattern" )
           done
           uploads+=( SHA256SUMS )

@@ -16,7 +16,7 @@ struct I18nEntry {
   std::string_view en;
 };
 
-inline constexpr std::array<I18nEntry, 31> kI18nTable{{
+inline constexpr std::array<I18nEntry, 38> kI18nTable{{
     {"app.name", "Shuttle", "Shuttle"},
     {"browse.download-dir", "\351\200\211\346\213\251\344\270\213\350\275\275\347\233\256\345\275\225", "Choose download directory"},
     {"browse.pick-files", "\351\200\211\346\213\251\350\246\201\345\217\221\351\200\201\347\232\204\346\226\207\344\273\266", "Choose files to send"},
@@ -47,7 +47,14 @@ inline constexpr std::array<I18nEntry, 31> kI18nTable{{
     {"transfers.title", "\344\274\240\350\276\223", "Transfers"},
     {"tray.exit", "\351\200\200\345\207\272", "Exit"},
     {"tray.open", "\346\211\223\345\274\200 Shuttle", "Open Shuttle"},
-    {"tray.tooltip", "Shuttle \342\200\224 \346\226\207\344\273\266\347\233\264\350\276\276\345\217\246\344\270\200\345\217\260\347\224\265\350\204\221", "Shuttle \342\200\224 files straight to the other PC"}
+    {"tray.tooltip", "Shuttle \342\200\224 \346\226\207\344\273\266\347\233\264\350\276\276\345\217\246\344\270\200\345\217\260\347\224\265\350\204\221", "Shuttle \342\200\224 files straight to the other PC"},
+    {"update.check", "\346\243\200\346\237\245\346\233\264\346\226\260", "Check for updates"},
+    {"update.checking", "\346\255\243\345\234\250\346\243\200\346\237\245\346\233\264\346\226\260\342\200\246", "Checking for updates\342\200\246"},
+    {"update.downloading", "\346\255\243\345\234\250\344\270\213\350\275\275\346\233\264\346\226\260\342\200\246", "Downloading update\342\200\246"},
+    {"update.idle", "\346\233\264\346\226\260", "Updates"},
+    {"update.install", "\345\256\211\350\243\205\345\271\266\351\207\215\345\220\257", "Install and restart"},
+    {"update.uptodate", "\345\267\262\346\230\257\346\234\200\346\226\260\347\211\210\346\234\254", "You are up to date"},
+    {"update.working", "\350\257\267\347\250\215\345\200\231\342\200\246", "Please wait\342\200\246"}
 }};
 
 }  // namespace rivet_app

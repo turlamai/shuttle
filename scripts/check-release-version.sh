@@ -36,4 +36,7 @@ GENERATED_VERSION="$(grep -oE 'kVersion\[\] = "[^"]*"' "$ROOT/windows/GeneratedB
 [[ "$GENERATED_VERSION" == "$VERSION" ]] || \
   fail "windows/GeneratedBackend.hpp kVersion '$GENERATED_VERSION' does not match tag '$TAG' (run raco rivet build, do not hand-edit)"
 
+# The backend's update/identity constant joins the version contract.
+grep -qF "(define app-version \"$VERSION\")" "$ROOT/app/backend.rkt" ||   fail "app/backend.rkt app-version does not match tag '$TAG'"
+
 echo "release preflight: $TAG ok"

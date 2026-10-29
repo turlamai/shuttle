@@ -13,8 +13,10 @@
          racket/string
          racket/system
          racket/async-channel
+         net/base64
          json
-         rivet/backend)
+         rivet/backend
+         rivet/distribution)
 
 (provide start
          ;; test hooks (used by the rackunit submodule and self-tests)
@@ -24,7 +26,7 @@
          list-transfers-records
          ;; share-op internals (driven by the self-tests)
          self-grant-full-control! write-manifest! write-done-marker!
-         ensure-wscript-js!)
+         ensure-wscript-js! ensure-updater! updater-instance)
 
 ;; ---------------------------------------------------------------- contract
 
@@ -49,6 +51,21 @@
 (define-record RelayHealth
   ([ok : Bool]
    [message : String]))
+
+;; ---------------------------------------------------------------- updates
+
+;; Bumped together with rivet.rktd and the generated C++ client; the
+;; release preflight (scripts/check-release-version.sh) asserts all four.
+(define app-version "0.2.0")
+
+;; Ed25519 public key (raw 32 bytes, base64) that signed update
+;; manifests must verify against. Private half lives in the
+;; UPDATE_ED25519_PRIVATE_KEY repository secret; never in the tree.
+(define update-public-key-b64
+  "CWCPzI5yKUswE4CwLKCm8Bi8pEHtNCAYlQEs+xh5/jI=")
+(define update-key-id "update-2026-10")
+(define update-manifest-url
+  "https://github.com/turlamai/shuttle/releases/latest/download/update-stable.json")
 
 (define-event transfer-changed : Transfer)
 (define-event relay-status : RelayHealth)
@@ -636,6 +653,108 @@
     (sleep 1.5)
     (loop)))
 
+;; ---------------------------------------------------------------- updates
+
+;; Online update channel (MSI installs only; portable copies update by
+;; re-downloading). All trust decisions happen inside rivet/distribution:
+;; the manifest is Ed25519-verified before parsing, artifacts are
+;; size/hash-checked, and this backend only orchestrates phases. The
+;; native host consumes the verified artifact via MsiHandoff.
+
+(define (base64-decode-string s) (base64-decode (string->bytes/latin-1 s)))
+
+(define updater-instance (make-parameter #f))
+
+(define (rollout-bucket)
+  ;; Persisted per installation so staged rollouts are stable.
+  (define cfg (config))
+  (hash-ref cfg 'rollout-bucket
+            (lambda ()
+              (define bucket (random 100))
+              (config (hash-set* cfg 'rollout-bucket bucket))
+              (write-config! (config))
+              bucket)))
+
+(define (update-data-dir)
+  (build-path (config-dir) "updates"))
+
+(define (ensure-updater!)
+  (unless (updater-instance)
+    (unless (equal? (hash-ref (config) 'install-flavor #f) "msi")
+      (error 'shuttle "updates require the MSI installation"))
+    (updater-instance
+     (make-updater
+      #:application-id "shuttle"
+      #:current-version app-version
+      #:channel 'stable
+      #:platform 'windows
+      #:architecture 'x64
+      #:install-kind 'msi
+      #:public-key (base64-decode-string update-public-key-b64)
+      #:key-id update-key-id
+      #:manifest-url update-manifest-url
+      #:data-directory (update-data-dir)
+      #:rollout-bucket (rollout-bucket)))))
+
+(define-rpc (set-install-flavor [flavor : String] : Bool)
+  (unless (member flavor '("msi" "portable"))
+    (error 'shuttle "unknown install flavor: ~a" flavor))
+  (config (hash-set* (config) 'install-flavor flavor))
+  (write-config! (config))
+  ;; A flavor change invalidates the updater instance.
+  (updater-instance #f)
+  #t)
+
+(define-rpc (check-updates : String)
+  (ensure-updater!)
+  (updater-check! (updater-instance))
+  (jsexpr->string (updater-state (updater-instance))))
+
+(define-rpc (start-download : Bool)
+  (ensure-updater!)
+  (updater-download! (updater-instance))
+  #t)
+
+(define-rpc (cancel-download : Bool)
+  (when (updater-instance)
+    (updater-cancel! (updater-instance)))
+  #t)
+
+(define (updater-snapshot)
+  (if (updater-instance)
+      (updater-state (updater-instance))
+      (hasheq 'phase "idle" 'percent 0
+              'message #f 'downloadedPath #f
+              'availableVersion #f
+              'currentVersion app-version)))
+
+(define (snapshot-field key [default ""])
+  (define v (hash-ref (updater-snapshot) key default))
+  (cond
+    [(string? v) v]
+    [(eq? v #f) default]
+    [else (format "~a" v)]))
+
+(define-rpc (updater-phase : String)
+  (snapshot-field 'phase "idle"))
+
+(define-rpc (updater-percent : Int64)
+  (hash-ref (updater-snapshot) 'percent 0))
+
+(define-rpc (updater-message : String)
+  (snapshot-field 'message))
+
+(define-rpc (updater-available-version : String)
+  (snapshot-field 'availableVersion))
+
+(define-rpc (verified-msi : String)
+  (ensure-updater!)
+  (define state (updater-state (updater-instance)))
+  (define path (hash-ref state 'downloadedPath #f))
+  (unless (and (string? path) (file-exists? path))
+    (error 'shuttle "no verified update artifact is available"))
+  path)
+
 ;; ---------------------------------------------------------------- RPC layer
 
 (define-rpc (ping : String)
@@ -948,6 +1067,21 @@
     (make-entry! id 'send safe-name size 'queued "排队中…" (display-stamp))
     (async-channel-put send-queue (cons id path))
     (hasheq 'id id))
+
+  ;; Update wiring, portable flavor: ensure-updater! must refuse (the
+  ;; error surfaces through check-updates) and never create an instance.
+  (test-case "updater refuses without msi flavor"
+    (define cfg (make-temporary-file "shuttle-upd~a" 'directory))
+    (init! #:force? #t
+           #:config-dir cfg
+           #:relay-dir (build-path cfg "relay")
+           #:download-dir (build-path cfg "dl"))
+    (config (hash-set* (config) 'install-flavor "portable"))
+    (updater-instance #f)
+    (check-exn #rx"updates require the MSI installation"
+               (lambda () (ensure-updater!)))
+    (check-false (updater-instance))
+    (delete-directory/files cfg))
 
   (define (test-main)
     (run-mailbox-selftest!)

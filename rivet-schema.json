@@ -148,6 +148,22 @@
   "rpcs": [
     {
       "arguments": [],
+      "name": "cancel-download",
+      "result": {
+        "kind": "scalar",
+        "name": "Bool"
+      }
+    },
+    {
+      "arguments": [],
+      "name": "check-updates",
+      "result": {
+        "kind": "scalar",
+        "name": "String"
+      }
+    },
+    {
+      "arguments": [],
       "name": "clear-history",
       "result": {
         "kind": "scalar",
@@ -200,6 +216,22 @@
     {
       "arguments": [
         {
+          "name": "flavor",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        }
+      ],
+      "name": "set-install-flavor",
+      "result": {
+        "kind": "scalar",
+        "name": "Bool"
+      }
+    },
+    {
+      "arguments": [
+        {
           "name": "relay-dir",
           "type": {
             "kind": "scalar",
@@ -218,6 +250,54 @@
       "result": {
         "kind": "record",
         "name": "Settings"
+      }
+    },
+    {
+      "arguments": [],
+      "name": "start-download",
+      "result": {
+        "kind": "scalar",
+        "name": "Bool"
+      }
+    },
+    {
+      "arguments": [],
+      "name": "updater-available-version",
+      "result": {
+        "kind": "scalar",
+        "name": "String"
+      }
+    },
+    {
+      "arguments": [],
+      "name": "updater-message",
+      "result": {
+        "kind": "scalar",
+        "name": "String"
+      }
+    },
+    {
+      "arguments": [],
+      "name": "updater-percent",
+      "result": {
+        "kind": "scalar",
+        "name": "Int64"
+      }
+    },
+    {
+      "arguments": [],
+      "name": "updater-phase",
+      "result": {
+        "kind": "scalar",
+        "name": "String"
+      }
+    },
+    {
+      "arguments": [],
+      "name": "verified-msi",
+      "result": {
+        "kind": "scalar",
+        "name": "String"
       }
     }
   ],

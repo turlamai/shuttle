@@ -39,6 +39,10 @@ struct MainWindow : MainWindowT<MainWindow> {
   void SetupTray();
   void SetupPolling();
   void PollTransfers();
+  void SetUpdateTimer(
+      winrt::Microsoft::UI::Xaml::DispatcherTimer timer);
+  void StartUpdateTimer();
+  void StopUpdateTimer();
   void ApplyRelayHealth(bool ok, std::wstring const& message);
   void UpsertTransfer(rivet_app::Transfer const& transfer);
   void UpdateEmptyState();
@@ -62,6 +66,9 @@ struct MainWindow : MainWindowT<MainWindow> {
   // Background threads cannot emit Rivet events (the emitter lives on
   // the RPC thread), so the list is refreshed by polling instead.
   winrt::Microsoft::UI::Xaml::DispatcherTimer poll_timer_{nullptr};
+  // Owned here so the settings dialog's download poller survives while
+  // its capturing lambdas stay alive.
+  winrt::Microsoft::UI::Xaml::DispatcherTimer update_timer_{nullptr};
 
   std::map<std::wstring, winrt::RivetHost::TransferItem, std::less<>> items_;
 

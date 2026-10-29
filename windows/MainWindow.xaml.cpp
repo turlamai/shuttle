@@ -4,6 +4,7 @@
 #include "MainWindow.g.cpp"
 #endif
 #include "GeneratedBackend.hpp"
+#include "update_handoff.hpp"
 #include "i18n.hpp"
 
 #include <atomic>
@@ -142,6 +143,50 @@ void SetAutostart(bool enable) {
     ::RegDeleteValueW(key, kAutostartEntry);
   }
   ::RegCloseKey(key);
+}
+
+// MSI-installed copies receive online updates (the updater downloads a
+// verified MSI and MsiHandoff runs it). Portable copies update by
+// re-downloading from the releases page.
+bool IsMsiInstall() {
+  const wchar_t* roots[] = {
+      L"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+      L"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+  };
+  for (auto const* root : roots) {
+    HKEY key = nullptr;
+    if (::RegOpenKeyExW(HKEY_LOCAL_MACHINE, root, 0, KEY_READ, &key) !=
+        ERROR_SUCCESS) {
+      continue;
+    }
+    for (DWORD i = 0;; ++i) {
+      wchar_t name[256];
+      DWORD len = 256;
+      if (::RegEnumKeyExW(key, i, name, &len, nullptr, nullptr, nullptr,
+                          nullptr) != ERROR_SUCCESS) {
+        break;
+      }
+      HKEY sub = nullptr;
+      if (::RegOpenKeyExW(key, name, 0, KEY_READ, &sub) != ERROR_SUCCESS) {
+        continue;
+      }
+      wchar_t display[256] = {};
+      DWORD type = 0;
+      DWORD bytes = sizeof(display);
+      bool hit =
+          ::RegQueryValueExW(sub, L"DisplayName", nullptr, &type,
+                             reinterpret_cast<BYTE*>(display), &bytes) ==
+              ERROR_SUCCESS &&
+          type == REG_SZ && ::wcscmp(display, L"Shuttle") == 0;
+      ::RegCloseKey(sub);
+      if (hit) {
+        ::RegCloseKey(key);
+        return true;
+      }
+    }
+    ::RegCloseKey(key);
+  }
+  return false;
 }
 
 Media::SolidColorBrush AccentBrush() {
@@ -455,6 +500,13 @@ winrt::fire_and_forget MainWindow::InitializeBackendAsync() {
                       hstring{L"本机 " +
                               std::wstring{winrt::to_hstring(
                                   settings.machine)}});
+                  try {
+                    rivet_app::API flavor_api(*live);
+                    (void)flavor_api.set_install_flavor_async(
+                        IsMsiInstall() ? "msi" : "portable",
+                        [](rivet_app::Result<bool>) {});
+                  } catch (...) {
+                  }
                   window->SetupPolling();
                 }
               });
@@ -548,6 +600,19 @@ void MainWindow::PollTransfers() {
   } catch (...) {
     // Backend shutting down; the next tick retries.
   }
+}
+
+void MainWindow::SetUpdateTimer(
+    winrt::Microsoft::UI::Xaml::DispatcherTimer timer) {
+  update_timer_ = std::move(timer);
+}
+
+void MainWindow::StartUpdateTimer() {
+  if (update_timer_) update_timer_.Start();
+}
+
+void MainWindow::StopUpdateTimer() {
+  if (update_timer_) update_timer_.Stop();
 }
 
 void MainWindow::ApplyRelayHealth(bool ok, std::wstring const& message) {
@@ -710,6 +775,21 @@ void MainWindow::ShowSettingsDialog() {
     content.Children().Append(autostart_row);
   }
 
+  // --- update block: one stateful button plus a status line. ---
+  auto update_row = StackPanel();
+  update_row.Orientation(Orientation::Horizontal);
+  update_row.Spacing(8);
+  auto update_status = TextBlock();
+  update_status.Opacity(0.75);
+  update_status.VerticalAlignment(VerticalAlignment::Center);
+  update_status.FontSize(12);
+  update_status.Text(tr_hstring("update.idle"));
+  auto update_button = Button();
+  update_button.Content(box_value(tr_hstring("update.check")));
+  update_row.Children().Append(update_status);
+  update_row.Children().Append(update_button);
+  content.Children().Append(update_row);
+
   auto browse_folder = [weak](TextBox box) -> winrt::fire_and_forget {
     try {
       FolderPicker picker;
@@ -734,6 +814,120 @@ void MainWindow::ShowSettingsDialog() {
       browse_folder(download_box);
     }
   });
+
+  // Update flow: check -> (auto) download -> arm -> handoff. One button
+  // walks the state machine; a dialog-local timer polls the phase.
+  {
+    struct UpdateRun {
+      bool download_started = false;
+      bool install_armed = false;
+      std::wstring available_version;
+    };
+    auto run = std::make_shared<UpdateRun>();
+
+    auto set_status = [update_status](hstring const& text) {
+      update_status.Text(text);
+    };
+    auto set_button = [update_button](hstring const& text, bool enabled) {
+      update_button.Content(box_value(text));
+      update_button.IsEnabled(enabled);
+    };
+
+    update_button.Click([weak = get_weak(), backend, run, set_status,
+                         set_button](auto const&, auto const&) {
+      auto window = weak.get();
+      if (window == nullptr) return;
+
+      if (run->install_armed) {
+        // Hand the verified MSI to the installer handoff; it quits this
+        // process, runs msiexec, and relaunches the app.
+        try {
+          rivet_app::API api(*backend);
+          auto const msi = api.verified_msi().get();
+          auto const exe = executable_path().wstring();
+          rivet::update::MsiHandoff::LaunchVerifiedInstaller(
+              L"shuttle", std::filesystem::path{winrt::to_hstring(msi).c_str()},
+              exe);
+        } catch (std::exception const& e) {
+          window->ShowError(winrt::to_hstring(e.what()));
+        }
+        return;
+      }
+
+      set_button(tr_hstring("update.working"), false);
+      set_status(tr_hstring("update.checking"));
+      rivet_app::API api(*backend);
+      (void)api.check_updates_async(
+          [weak, run, set_status, set_button](rivet_app::Result<std::string>) {
+            auto window2 = weak.get();
+            if (window2 == nullptr) return;
+            try {
+              rivet_app::API phase_api(*backend);
+              auto const phase = phase_api.updater_phase().get();
+              if (phase == "available") {
+                run->available_version =
+                    std::wstring{winrt::to_hstring(
+                        phase_api.updater_available_version().get())};
+                set_status(tr_hstring("update.downloading"));
+                (void)phase_api.start_download().get();
+
+                auto timer = DispatcherTimer();
+                timer.Interval(std::chrono::milliseconds{1000});
+                timer.Tick([weak, run, set_status, set_button](
+                               auto const&, auto const&) {
+                  auto window3 = weak.get();
+                  if (window3 == nullptr) return;
+                  try {
+                    rivet_app::API poll_api(*window3->backend_);
+                    auto const phase2 = poll_api.updater_phase().get();
+                    if (phase2 == "downloading") {
+                      auto const percent = poll_api.updater_percent().get();
+                      set_status(hstring{L"下载中 " +
+                                         std::to_wstring(percent) + L"%"});
+                    } else if (phase2 == "downloaded") {
+                      if (auto timer_window = weak.get()) {
+                        // stop handled by timer lifetime below
+                      }
+                      run->install_armed = true;
+                      set_status(hstring{L"已就绪 " + run->available_version});
+                      set_button(
+                          tr_hstring("update.install"), true);
+                      if (auto timer_window = weak.get()) {
+                        timer_window->StopUpdateTimer();
+                      }
+                    } else if (phase2 == "error") {
+                      auto const message =
+                          poll_api.updater_message().get();
+                      set_status(hstring{winrt::to_hstring(message)});
+                      run->install_armed = false;
+                      if (auto timer_window = weak.get()) {
+                        timer_window->StopUpdateTimer();
+                      }
+                    }
+                  } catch (std::exception const& e) {
+                    set_status(winrt::to_hstring(e.what()));
+                  }
+                });
+                window->SetUpdateTimer(std::move(timer));
+                window->StartUpdateTimer();
+              } else if (phase == "up-to-date") {
+                set_status(tr_hstring("update.uptodate"));
+                set_button(tr_hstring("update.check"), true);
+              } else if (phase == "error") {
+                auto const message = phase_api.updater_message().get();
+                set_status(hstring{winrt::to_hstring(message)});
+                set_button(tr_hstring("update.check"), true);
+              } else {
+                set_status(hstring{winrt::to_hstring(phase)});
+                set_button(tr_hstring("update.check"), true);
+              }
+            } catch (std::exception const& e) {
+              set_status(winrt::to_hstring(e.what()));
+              set_button(tr_hstring("update.check"), true);
+            }
+          });
+    });
+  }
 
   dialog.Title(box_value(tr_hstring("settings.title")));
   dialog.Content(content);

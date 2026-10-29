@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.0]
+
+### Added
+
+- **In-app updates** (MSI installs). Settings gains an update block:
+  check, download with progress, and install-and-restart, all driven by
+  rivet's signed update channel — manifests are Ed25519-verified against
+  an embedded key before parsing, artifacts are size- and hash-checked,
+  and the Windows host hands the verified MSI to msiexec and relaunches.
+  The installer flavor is detected from the registry at startup; portable
+  copies keep updating by re-downloading. The release pipeline now signs
+  and publishes `update-stable.json` alongside the installers.
+
 ## [0.1.9]
 
 ### Fixed
