@@ -491,7 +491,7 @@ void MainWindow::ShowError(hstring const& message) {
 }
 
 void MainWindow::SetupPolling() {
-  poll_timer_ = Xaml::DispatcherTimer();
+  poll_timer_ = DispatcherTimer();
   poll_timer_.Interval(std::chrono::milliseconds{1500});
   poll_timer_.Tick([weak = get_weak()](auto const&, auto const&) {
     if (auto window = weak.get()) {
