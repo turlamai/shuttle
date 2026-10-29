@@ -151,8 +151,8 @@ void SetAutostart(bool enable) {
 // re-downloading from the releases page.
 bool IsMsiInstall() {
   const wchar_t* roots[] = {
-      L"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
-      L"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+      L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+      L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
   };
   for (auto const* root : roots) {
     HKEY key = nullptr;
