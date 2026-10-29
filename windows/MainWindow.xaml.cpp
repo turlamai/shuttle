@@ -909,8 +909,8 @@ void MainWindow::ShowSettingsDialog() {
                     set_status(winrt::to_hstring(e.what()));
                   }
                 });
-                window->SetUpdateTimer(std::move(timer));
-                window->StartUpdateTimer();
+                window2->SetUpdateTimer(std::move(timer));
+                window2->StartUpdateTimer();
               } else if (phase == "up-to-date") {
                 set_status(tr_hstring("update.uptodate"));
                 set_button(tr_hstring("update.check"), true);
