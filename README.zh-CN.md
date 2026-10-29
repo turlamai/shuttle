@@ -2,7 +2,7 @@
 
 [English](README.md) · 简体中文
 
-[![release](https://img.shields.io/github/v/release/turinglambdaai/shuttle)](https://github.com/turinglambdaai/shuttle/releases/latest) ![platform](https://img.shields.io/badge/platform-Windows-lightgrey) ![built with](https://img.shields.io/badge/built%20with-Rivet-9333ea) [![CI](https://github.com/turinglambdaai/shuttle/actions/workflows/ci.yml/badge.svg)](https://github.com/turinglambdaai/shuttle/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/turlamai/shuttle)](https://github.com/turlamai/shuttle/releases/latest) ![platform](https://img.shields.io/badge/platform-Windows-lightgrey) ![built with](https://img.shields.io/badge/built%20with-Rivet-9333ea) [![CI](https://github.com/turlamai/shuttle/actions/workflows/ci.yml/badge.svg)](https://github.com/turlamai/shuttle/actions/workflows/ci.yml)
 
 两台公司 Windows 电脑之间的文件「直传」小工具。文件从 A 机拖进去，B 机自动收到并弹通知——看起来是直接互传，实际走的是共享盘上的一个信箱目录。
 
@@ -81,7 +81,7 @@ racket -e '(require (submod "app/backend.rkt" test)) (test-main)'   # 真实共�
 - **防重放**：已处理过的传输 id 记入 `consumed.jsonl`，不会重复下载。
 - **目录健康**：共享盘断连时状态栏红点提示「中转目录不可达」，恢复后自动变绿。
 
-技术栈：Racket 后端（全部业务逻辑）+ WinUI 3 原生宿主（展示与系统集成），经 [rivet](https://github.com/turinglambdaai/rivet) 的 typed RPC 通信。
+技术栈：Racket 后端（全部业务逻辑）+ WinUI 3 原生宿主（展示与系统集成），经 [rivet](https://github.com/turlamai/rivet) 的 typed RPC 通信。
 
 ## 目录结构
 
