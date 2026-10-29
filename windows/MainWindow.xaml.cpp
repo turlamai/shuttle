@@ -639,13 +639,33 @@ void MainWindow::RunUpdateFlow(
   rivet_app::API api(*backend);
   (void)api.check_updates_async(
       [weak, backend, update_button, update_status](
-          rivet_app::Result<std::string>) {
+          rivet_app::Result<std::string> result) {
         auto const window = weak.get();
         if (window == nullptr) return;
         window->DispatcherQueue().TryEnqueue(
-            [weak, backend, update_button, update_status]() {
+            [weak, backend, update_button, update_status, result]() {
               auto const window2 = weak.get();
               if (window2 == nullptr) return;
+              // A failed check (portable flavor refuses updates, network
+              // down, manifest unverifiable) surfaces here: show the
+              // reason and open the releases page for a manual grab.
+              auto const set_status =
+                  [update_status](hstring const& t) { update_status.Text(t); };
+              auto const set_button = [update_button](hstring const& t,
+                                                      bool enabled) {
+                update_button.Content(box_value(t));
+                update_button.IsEnabled(enabled);
+              };
+              try {
+                (void)result.get();
+              } catch (std::exception const& check_error) {
+                // Portable flavor refuses updates; the network or the
+                // manifest may be unreachable. Show why, offer the page.
+                set_status(winrt::to_hstring(check_error.what()));
+                window2->OpenReleasesPage();
+                set_button(hstring(tr_hstring("update.check")), true);
+                return;
+              }
               window2->PollUpdatePhase(update_button, update_status);
             });
       });
