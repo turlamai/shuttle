@@ -365,8 +365,19 @@
 
 (define (sender-loop)
   (let loop ()
-    (define id (async-channel-get send-queue))
-    (do-send! id)
+    (define item (async-channel-get send-queue))
+    ;; Queue items are (cons id path); a malformed legacy item fails
+    ;; this one task without killing the sender thread.
+    (with-handlers ([exn:fail?
+                     (lambda (e)
+                       (define id (if (pair? item) (car item) item))
+                       (entry-status id 'failed
+                                     (format "发送线程错误：~a" (exn-message e))))])
+      (define id (car item))
+      (define path (cdr item))
+      (unless (string? path)
+        (error 'shuttle "队列缺少文件路径"))
+      (do-send! id path))
     (loop)))
 
 ;; ---------------------------------------------------------------- receiving
@@ -509,7 +520,7 @@
   (define size (file-size path))
   (define entry
     (make-entry! id 'send safe-name size 'queued "排队中…" stamp))
-  (async-channel-put send-queue id)
+  (async-channel-put send-queue (cons id path))
   entry)
 
 (define-rpc (list-transfers : (List Transfer))
@@ -678,4 +689,53 @@
     (delete-directory/files relay)
     (delete-file src))
 
-  (define (test-main) (run-mailbox-selftest!)))
+  ;; The send path as the RPC actually drives it: send-file puts
+  ;; (cons id path) on the queue and a real sender-loop thread drains
+  ;; it. Guards the arity regression where the loop passed only the id
+  ;; to do-send! and every send failed at runtime.
+  (define (run-send-loop-selftest!)
+    (define share-root
+      (string->path "Z:\\19 汽车电子事业部\\研发部\\04_Software\\LiDAR"))
+    (define relay (build-path share-root ".shuttle-selftest"))
+    (define downloads (make-temporary-file "shuttle-dl~a" 'directory))
+    (init! #:config-dir (make-temporary-file "shuttle-cfg~a" 'directory)
+           #:relay-dir relay #:download-dir downloads)
+
+    (define sender-thread (thread sender-loop))
+    (define entry (send-file-for-test! (path->string
+                                        (make-temporary-file "shuttle-loop~a"))))
+    (define deadline (+ (current-seconds) 30))
+    (let wait ()
+      (define current
+        (for/first ([e (in-list (snapshot-transfers))]
+                    #:when (string=? (hash-ref e 'id) (hash-ref entry 'id)))
+          e))
+      (define status (and current (hash-ref current 'status)))
+      (cond
+        [(member status '(sent failed))
+         (check-equal? status 'sent
+                       (format "send via loop: ~a"
+                               (and current (hash-ref current 'message))))]
+        [(> (current-seconds) deadline)
+         (check-false #t "sender loop never settled the transfer")]
+        [else (sleep 0.3) (wait)]))
+
+    (kill-thread sender-thread)
+    (delete-directory/files downloads)
+    (delete-directory/files relay))
+
+  ;; send-file minus the rivet RPC wrapper (same body): validates the
+  ;; file, files the entry, enqueues (cons id path).
+  (define (send-file-for-test! path)
+    (define base (file-name-from-path (string->path path)))
+    (define safe-name (or (sanitize-filename path)
+                          (and base (path->string base))))
+    (define id (new-transfer-id))
+    (define size (file-size (string->path path)))
+    (make-entry! id 'send safe-name size 'queued "排队中…" (display-stamp))
+    (async-channel-put send-queue (cons id path))
+    (hasheq 'id id))
+
+  (define (test-main)
+    (run-mailbox-selftest!)
+    (run-send-loop-selftest!)))

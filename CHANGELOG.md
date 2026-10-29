@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.4]
+
+### Fixed
+
+- **Sending actually works.** The sender thread pulled only the transfer
+  id off the queue while the send routine takes id + path, so every
+  send died on an arity error before a byte left the machine — a
+  regression the receive-only self-test could not see. The queue now
+  carries (id . path), the sender loop tolerates a malformed task
+  (fails that transfer, never the thread), and a second self-test
+  drives the real queue+thread path end to end on the share.
+
 ## [0.1.3]
 
 ### Changed
