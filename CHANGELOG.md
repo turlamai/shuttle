@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2]
+
+### Fixed
+
+- The install-flavor detection now also scans the HKCU uninstall key, so
+  per-user MSI installs are recognized and receive the update channel.
+
 ## [0.3.1]
 
 ### Fixed
