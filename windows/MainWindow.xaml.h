@@ -67,6 +67,7 @@ struct MainWindow : MainWindowT<MainWindow> {
   winrt::Microsoft::UI::Xaml::Controls::TextBlock health_text_{nullptr};
   winrt::Microsoft::UI::Xaml::Shapes::Ellipse health_dot_{nullptr};
   winrt::Microsoft::UI::Xaml::Controls::Border drop_zone_{nullptr};
+  winrt::Microsoft::UI::Xaml::Controls::ComboBox target_box_{nullptr};
   winrt::Microsoft::UI::Xaml::Controls::ContentDialog settings_dialog_{nullptr};
 
   // Background threads cannot emit Rivet events (the emitter lives on

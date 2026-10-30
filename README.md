@@ -41,24 +41,26 @@ by machine name, so the two sides never fight over a transfer.
 
 ### Multi-user deployments (colleagues)
 
-Shuttle is a **pair** tool: the mailbox has no recipient addressing, and a
-receiver claims any transfer not sent by itself. Multiple pairs must
-therefore use **separate relay directories** — one per pair of machines:
+Shuttle supports a **shared mailbox with recipient addressing** (v0.4+):
+every installation has an identity — the machine name by default,
+customizable in Settings — and each send names its recipient from the
+"发给 / Send to" box (previous recipients are remembered automatically).
+Receivers only claim mail addressed to them, so **everyone can point at
+the same relay directory** without cross-delivery.
 
-```
-Z:\...\04_Software\LiDAR\.shuttle              # your pair
-Z:\...\04_Software\LiDAR\.shuttle-zhangsan     # colleague's pair
-Z:\...\04_Software\LiDAR\.shuttle-lisi         # another colleague
-```
+One-time setup per person:
 
-Each person sets their own relay path in Settings on both of their
-machines; everything else (notifications, cleanup, permissions
-self-heal) is pair-local and needs no further setup. Do **not** point two
-pairs at the same directory — the first idle machine will collect the
-other pair's mail. (Colleagues from other departments: make sure the
-chosen directory grants your account write access, and note that files
-sit in the mailbox in transit where anyone with share access can read
-them — the same trust level as the share itself.)
+1. Install the MSI, point the relay directory at the shared path (the
+   same one for everybody, e.g. `Z:\...\LiDAR\.shuttle`);
+2. Check Settings → 本机名称 and set a unique name if two machines share
+   one hostname;
+3. Type the recipient's machine name once — it is remembered.
+
+Older releases (v0.3.x) used per-pair relay directories (`.shuttle-<name>`);
+those keep working unchanged. Do not mix: every participant on a shared
+mailbox should run v0.4 or later. Note that files sit in the mailbox in
+transit where anyone with share access can read them — the same trust
+level as the share itself.
 
 ## Distribution (GitHub Releases, taskly family conventions)
 

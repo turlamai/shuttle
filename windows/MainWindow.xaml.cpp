@@ -289,6 +289,7 @@ void MainWindow::SetupLocalization() {
   health_text_ = HealthText();
   health_dot_ = HealthDot();
   drop_zone_ = DropZone();
+  target_box_ = TargetBox();
 
   DropTitle().Text(tr_hstring("drop.title"));
   DropSubtitle().Text(tr_hstring("drop.subtitle"));
@@ -512,6 +513,27 @@ winrt::fire_and_forget MainWindow::InitializeBackendAsync() {
                       (void)flavor_api.set_install_flavor_async(
                           IsMsiInstall() ? "msi" : "portable",
                           [](rivet_app::Result<bool>) {});
+                    }
+                  } catch (...) {
+                  }
+                  if (!settings.target.empty()) {
+                    window->target_box_.Text(
+                        hstring{winrt::to_hstring(settings.target)});
+                  }
+                  try {
+                    if (auto peers_backend = window->backend_) {
+                      rivet_app::API peers_api(*peers_backend);
+                      auto const peers = peers_api.list_known_peers().get();
+                      window->DispatcherQueue().TryEnqueue(
+                          [weak, peers] {
+                            if (auto w = weak.get()) {
+                              for (auto const& peer : peers) {
+                                w->target_box_.Items().Append(
+                                    box_value(
+                                        hstring{winrt::to_hstring(peer)}));
+                              }
+                            }
+                          });
                     }
                   } catch (...) {
                   }
@@ -861,12 +883,15 @@ void MainWindow::ShowSettingsDialog() {
 
   TextBox relay_box;
   TextBox download_box;
+  TextBox identity_box;
   ToggleSwitch autostart_toggle;
   Button relay_browse;
   Button download_browse;
 
   relay_box.Text(hstring{winrt::to_hstring(settings.relay_dir)});
   download_box.Text(hstring{winrt::to_hstring(settings.download_dir)});
+  identity_box.Text(hstring{winrt::to_hstring(settings.identity)});
+  identity_box.PlaceholderText(hstring{winrt::to_hstring(settings.machine)});
   autostart_toggle.OnContent(box_value(hstring(L"")));
   autostart_toggle.OffContent(box_value(hstring(L"")));
   autostart_toggle.IsOn(AutostartEnabled());
@@ -920,6 +945,18 @@ void MainWindow::ShowSettingsDialog() {
     content.Children().Append(autostart_row);
   }
 
+  {
+    auto caption = TextBlock();
+    caption.Text(tr_hstring("settings.identity-label"));
+    caption.FontSize(12);
+    caption.Opacity(0.75);
+    auto stack = StackPanel();
+    stack.Spacing(6);
+    stack.Children().Append(caption);
+    stack.Children().Append(identity_box);
+    content.Children().Append(stack);
+  }
+
   // --- update block: a member-function state machine, not nested
   // lambdas. One button walks check -> download -> install.
   auto update_row = StackPanel();
@@ -971,7 +1008,9 @@ void MainWindow::ShowSettingsDialog() {
       rivet_app::API api(*backend);
       (void)api
           .set_settings(winrt::to_string(relay_box.Text()),
-                        winrt::to_string(download_box.Text()))
+                        winrt::to_string(download_box.Text()),
+                        winrt::to_string(identity_box.Text()),
+                        winrt::to_string(std::wstring{TargetBox().Text()}))
           .get();
     } catch (std::exception const& e) {
       if (auto window = weak.get()) {

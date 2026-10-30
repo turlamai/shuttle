@@ -79,6 +79,20 @@
             "kind": "scalar",
             "name": "String"
           }
+        },
+        {
+          "name": "identity",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "target",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
         }
       ],
       "name": "Settings"
@@ -180,6 +194,17 @@
     },
     {
       "arguments": [],
+      "name": "list-known-peers",
+      "result": {
+        "element": {
+          "kind": "scalar",
+          "name": "String"
+        },
+        "kind": "list"
+      }
+    },
+    {
+      "arguments": [],
       "name": "list-transfers",
       "result": {
         "element": {
@@ -201,6 +226,13 @@
       "arguments": [
         {
           "name": "path",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "to",
           "type": {
             "kind": "scalar",
             "name": "String"
@@ -240,6 +272,20 @@
         },
         {
           "name": "download-dir",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "identity",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "target",
           "type": {
             "kind": "scalar",
             "name": "String"

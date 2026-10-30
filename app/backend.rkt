@@ -26,7 +26,9 @@
          list-transfers-records
          ;; share-op internals (driven by the self-tests)
          self-grant-full-control! write-manifest! write-done-marker!
-         ensure-wscript-js! ensure-updater! updater-instance)
+         ensure-wscript-js! ensure-updater! updater-instance
+         my-identity claims? remember-peer!
+         mailbox-folder-name write-done-marker! folder-stamp new-transfer-id)
 
 ;; ---------------------------------------------------------------- contract
 
@@ -46,17 +48,24 @@
 (define-record Settings
   ([relay-dir : String]
    [download-dir : String]
-   [machine : String]))
+   [machine : String]
+   [identity : String]
+   [target : String]))
 
 (define-record RelayHealth
   ([ok : Bool]
    [message : String]))
 
+;; ---------------------------------------------------------------- peers
+
+;; Machines actually seen on this mailbox (manifest senders plus
+;; explicit send targets) — feeds the recipient selector so nobody has
+;; to guess machine names. Persisted in config.
 ;; ---------------------------------------------------------------- updates
 
 ;; Bumped together with rivet.rktd and the generated C++ client; the
 ;; release preflight (scripts/check-release-version.sh) asserts all four.
-(define app-version "0.3.2")
+(define app-version "0.4.0")
 
 ;; Ed25519 public key (raw 32 bytes, base64) that signed update
 ;; manifests must verify against. Private half lives in the
@@ -449,11 +458,12 @@
 (define (mailbox-folder-name stamp id)
   (string-append stamp "-" (substring id 0 (min 8 (string-length id)))))
 
-(define (write-manifest! dir sender filename size id stamp)
+(define (write-manifest! dir sender filename size id stamp [to ""])
   (call-with-output-file (build-path dir "manifest.json") #:exists 'truncate
     (lambda (p)
       (write-json (hasheq 'shuttle 1
                           'sender sender
+                          'to to
                           'file filename
                           'size size
                           'id id
@@ -504,7 +514,8 @@
     ;; shares the grant happens lazily at delete-failure (below) — both
     ;;  keep the send free of any child process, hence no black window.
     ;; Manifest first: a crashed send still shows sender attribution for sweep.
-    (write-manifest! folder (this-machine) filename size id stamp)
+    (define to (hash-ref entry 'to ""))
+    (write-manifest! folder (this-machine) filename size id stamp to)
     (entry-status id 'active "复制到信箱中…")
     (send-log! "copy begin")
     (copy-with-progress! src (build-path folder "payload.part") id)
@@ -564,14 +575,35 @@
      (for ([folder (in-list (relay-folders relay))])
        (try-receive! folder downloads))]))
 
+;; This installation's identity: the configured name (defaults to the
+;; machine name). Manifest `to`/`sender` fields are matched against it.
+(define (my-identity)
+  (string-trim (hash-ref (config) 'identity "") #:left? #t #:right? #t))
+
+(define (same-identity? a b)
+  (string=? (string-downcase a) (string-downcase b)))
+
+;; Claim rule: legacy manifests (no `to` — v0.3 pair semantics) are
+;; claimed as before; addressed manifests only by the named recipient.
+;; Addressed mail for someone else is left untouched for them.
+(define (claims? manifest)
+  (define to (hash-ref manifest 'to #f))
+  (cond
+    [(not (string? to)) #t] ; legacy, no addressing
+    [(string=? (string-trim to) "") #t] ; broadcast
+    [else (same-identity? (string-trim to) (my-identity))]))
+
 (define (try-receive! folder downloads)
   (define manifest (read-manifest folder))
+  (when manifest (observe-peer-from-manifest! manifest))
   (when (and manifest (manifest-has-done? folder))
     (define id (hash-ref manifest 'id "unknown"))
     (unless (hash-ref consumed-ids id #f)
-      (unless (string=? (hash-ref manifest 'sender "") (this-machine))
-        ;; Our own sends wait for the other PC; everything else is incoming.
-        (receive-folder! folder manifest id downloads)))))
+      (unless (string=? (hash-ref manifest 'sender "") (my-identity))
+        ;; Our own sends wait for the recipient; everything addressed to
+        ;; us (or legacy unaddressed mail) is incoming.
+        (when (claims? manifest)
+          (receive-folder! folder manifest id downloads))))))
 
 (define (receive-folder! folder manifest id downloads)
   (define sender (hash-ref manifest 'sender "未知电脑"))
@@ -615,6 +647,27 @@
                        sender
                        (if removed "" "；信箱残留请手动清理"))))))
 
+(define (remember-peer! name)
+  (define trimmed (string-trim name))
+  (unless (string=? trimmed "")
+    (define cfg (config))
+    (define current (hash-ref cfg 'known-peers '()))
+    (unless (member trimmed current)
+      (define next (let loop ([xs (cons trimmed current)] [acc '()])
+                     (if (null? xs) acc (loop (cdr xs) (cons (car xs) acc)))))
+      (config (hash-set* cfg 'known-peers next))
+      (write-config! (config)))))
+
+;; Record a peer from any manifest we happen to read.
+(define (observe-peer-from-manifest! manifest)
+  (define sender (hash-ref manifest 'sender #f))
+  (when (string? sender)
+    (unless (same-identity? sender (my-identity))
+      (remember-peer! sender))))
+
+(define-rpc (list-known-peers : (List String))
+  (hash-ref (config) 'known-peers '()))
+
 ;; Startup / hourly sweep: only folders whose manifest names THIS machine
 ;; as sender are ever removed. The mailbox is a relay, not storage — the
 ;; original file stays wherever the user sent it from.
@@ -623,7 +676,7 @@
   (for ([folder (in-list (relay-folders relay))])
     (define manifest (read-manifest folder))
     (when (and manifest
-               (string=? (hash-ref manifest 'sender "") (this-machine)))
+               (string=? (hash-ref manifest 'sender "") (my-identity)))
       (define name (path->string folder))
       (define m (regexp-match #rx"([0-9]{8})-([0-9]{6})-[0-9a-f]+$" name))
       (when m
@@ -765,11 +818,14 @@
 ;; the raw entry hasheq here made the wire validation reject every
 ;; send ("expected Transfer received Unsupported") after the transfer
 ;; had already been queued.
-(define (begin-send! path)
+(define (begin-send! path to)
   (unless (file-exists? path)
     (error 'shuttle "文件不存在：~a" path))
   (when (directory-exists? path)
     (error 'shuttle "暂不支持发送文件夹：~a" path))
+  (define trimmed-to (string-trim (or to "")))
+  (when (string=? trimmed-to "")
+    (error 'shuttle "请先在主窗口填写对方电脑名"))
   (define base (file-name-from-path (string->path path)))
   (define safe-name (or (sanitize-filename path)
                         (and base (path->string base))))
@@ -780,11 +836,17 @@
   (define size (file-size path))
   (define entry
     (make-entry! id 'send safe-name size 'queued "排队中…" stamp))
+  ;; Record the recipient on the entry so the sender thread can write
+  ;; it into the manifest.
+  (call-with-semaphore state-lock
+    (lambda ()
+      (hash-set! transfers-table id (hash-set* entry 'to trimmed-to))))
+  (remember-peer! trimmed-to)
   (async-channel-put send-queue (cons id path))
-  (entry->record entry))
+  (entry->record (hash-set entry 'to trimmed-to)))
 
-(define-rpc (send-file [path : String] : Transfer)
-  (begin-send! path))
+(define-rpc (send-file [path : String] [to : String] : Transfer)
+  (begin-send! path to))
 
 ;; The list-transfers body, factored out for tests: the sort key must
 ;; default because entries loaded from the ledger predate normalization.
@@ -807,7 +869,8 @@
 (define-rpc (get-settings : Settings)
   (settings-record))
 
-(define-rpc (set-settings [relay-dir : String] [download-dir : String] : Settings)
+(define-rpc (set-settings [relay-dir : String] [download-dir : String]
+                          [identity : String] [target : String] : Settings)
   (define relay (string->path (string-trim relay-dir)))
   (define downloads (string->path (string-trim download-dir)))
   (with-handlers ([exn:fail?
@@ -818,17 +881,26 @@
                    (lambda (e)
                      (error 'shuttle "无法创建下载目录：~a" (exn-message e)))])
     (make-directory* downloads))
-  (config (hasheq 'relay-dir (path->display relay)
-                  'download-dir (path->display downloads)))
+  (define trimmed-identity (string-trim identity))
+  (config (hash-set* (config)
+                     'relay-dir (path->display relay)
+                     'download-dir (path->display downloads)
+                     'identity (if (string=? trimmed-identity "")
+                                   (this-machine)
+                                   trimmed-identity)
+                     'target (string-trim target)))
   (write-config! (config))
   (config-relay-ok-param 'unknown) ; force a fresh health event on next poll
   (settings-record))
 
 (define (settings-record)
   (define cfg (config))
+  (define configured (string-trim (hash-ref cfg 'identity "")))
   (Settings (hash-ref cfg 'relay-dir)
             (hash-ref cfg 'download-dir)
-            (this-machine)))
+            (this-machine)
+            (if (string=? configured "") (this-machine) configured)
+            (string-trim (hash-ref cfg 'target ""))))
 
 ;; ---------------------------------------------------------------- lifecycle
 
@@ -874,6 +946,7 @@
 
 (module+ test
   (require rackunit
+           racket/port
            racket/port
            racket/string)
   (provide test-main)
@@ -926,6 +999,12 @@
     (define test-id (new-transfer-id))
     (make-entry! test-id 'send "selftest 报告.bin"
                  (file-size src) 'queued "测试" (display-stamp))
+    ;; Record the recipient on the entry (what begin-send! does).
+    (call-with-semaphore state-lock
+      (lambda ()
+        (hash-set! transfers-table
+                   test-id (hash-set* (hash-ref transfers-table test-id)
+                                      'to (my-identity)))))
     (parameterize ([this-machine "SELFTEST-PEER"])
       (do-send! test-id (path->string src)))
 
@@ -979,7 +1058,7 @@
     (define src (make-temporary-file "shuttle-src~a"))
     (call-with-output-file src #:exists 'truncate
       (lambda (p) (display "x" p)))
-    (define result (begin-send! (path->string src)))
+    (define result (begin-send! (path->string src) "TEST-TARGET"))
     ;; record-ref raises on a non-record; a raw hasheq must not pass.
     (check-true (string? (record-ref result 'id))
                 "send-file result must be a Transfer record")
@@ -1034,8 +1113,9 @@
            #:relay-dir relay #:download-dir downloads)
 
     (define sender-thread (thread sender-loop))
-    (define entry (send-file-for-test! (path->string
-                                        (make-temporary-file "shuttle-loop~a"))))
+    (define entry (send-file-for-test!
+                   (path->string (make-temporary-file "shuttle-loop~a"))
+                   "LOOP-PEER"))
     (define deadline (+ (current-seconds) 30))
     (let wait ()
       (define current
@@ -1058,13 +1138,17 @@
 
   ;; send-file minus the rivet RPC wrapper (same body): validates the
   ;; file, files the entry, enqueues (cons id path).
-  (define (send-file-for-test! path)
+  (define (send-file-for-test! path to)
     (define base (file-name-from-path (string->path path)))
     (define safe-name (or (sanitize-filename path)
                           (and base (path->string base))))
     (define id (new-transfer-id))
     (define size (file-size (string->path path)))
     (make-entry! id 'send safe-name size 'queued "排队中…" (display-stamp))
+    (call-with-semaphore state-lock
+      (lambda ()
+        (hash-set! transfers-table
+                   id (hash-set* (hash-ref transfers-table id) 'to to))))
     (async-channel-put send-queue (cons id path))
     (hasheq 'id id))
 
@@ -1082,6 +1166,48 @@
                (lambda () (ensure-updater!)))
     (check-false (updater-instance))
     (delete-directory/files cfg))
+
+  ;; The multi-user guarantee: mail addressed to another machine is
+  ;; never claimed, mail addressed to us (or legacy unaddressed) is.
+  (test-case "addressing claim rule"
+    (define tmp (make-temporary-file "shuttle-addr~a" 'directory))
+    (define relay (build-path tmp "relay"))
+    (define downloads (build-path tmp "dl"))
+    (init! #:force? #t
+           #:config-dir (build-path tmp "cfg")
+           #:relay-dir relay #:download-dir downloads)
+
+    (define (peer-mail-to! to [fname "x.bin"])
+      (define folder
+        (build-path relay (mailbox-folder-name (folder-stamp) (new-transfer-id))))
+      (make-directory* folder)
+      (write-manifest! folder "PEER" fname 4 (new-transfer-id) "t" to)
+      (call-with-output-file (build-path folder "payload") #:exists 'truncate
+        (lambda (out) (display "abcd" out)))
+      (write-done-marker! folder)
+      folder)
+
+    ;; addressed elsewhere: untouched
+    (define other (peer-mail-to! "SOMEONE-ELSE"))
+    ;; addressed to us: claimed
+    (define mine (peer-mail-to! (my-identity)))
+    ;; legacy unaddressed: claimed
+    (define legacy (peer-mail-to! ""))
+    (define unaddressed (peer-mail-to! "" "old.bin"))
+
+    (receive-cycle!)
+
+    ;; Mail addressed elsewhere must remain on the share untouched;
+    ;; mail for us (and legacy unaddressed) is claimed and cleaned up.
+    (check-true (directory-exists? other) "mail for others stays")
+    (check-false (directory-exists? mine) "addressed mail claimed + cleaned")
+    (check-true (file-exists? (build-path downloads "x.bin"))
+                "addressed mail downloaded")
+    (check-true (file-exists? (build-path downloads "old.bin"))
+                "legacy mail downloaded")
+    (check-false (directory-exists? legacy) "legacy mail claimed + cleaned")
+    (check-false (directory-exists? unaddressed) "unaddressed claimed")
+    (delete-directory/files tmp))
 
   (define (test-main)
     (run-mailbox-selftest!)

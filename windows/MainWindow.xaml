@@ -87,6 +87,7 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
@@ -97,9 +98,27 @@
                 IsOpen="False" IsClosable="True"
                 Severity="Error"/>
 
+            <Grid Grid.Row="1" ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock
+                    Grid.Column="0"
+                    Text="发给"
+                    FontSize="13" Opacity="0.75"
+                    VerticalAlignment="Center"/>
+                <ComboBox
+                    x:Name="TargetBox"
+                    Grid.Column="1"
+                    IsEditable="True"
+                    PlaceholderText="对方电脑名（如 OFFICE-PC）"
+                    MinHeight="32"/>
+            </Grid>
+
             <Border
                 x:Name="DropZone"
-                Grid.Row="1"
+                Grid.Row="2"
                 Height="128" CornerRadius="12"
                 Background="{StaticResource DropZoneFill}"
                 BorderBrush="{ThemeResource ControlElevationBorderBrush}"
@@ -121,7 +140,7 @@
                 </StackPanel>
             </Border>
 
-            <Grid Grid.Row="2">
+            <Grid Grid.Row="3">
                 <TextBlock
                     x:Name="TransfersTitle"
                     FontSize="13" FontWeight="SemiBold" Opacity="0.8"
@@ -133,7 +152,7 @@
                     Padding="8,4" FontSize="12"/>
             </Grid>
 
-            <Grid Grid.Row="3">
+            <Grid Grid.Row="4">
                 <ListView
                     x:Name="TransfersList"
                     ItemTemplate="{StaticResource TransferTemplate}"
@@ -146,7 +165,7 @@
                     TextAlignment="Center"/>
             </Grid>
 
-            <Grid Grid.Row="4">
+            <Grid Grid.Row="5">
                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                     <Ellipse x:Name="HealthDot" Width="8" Height="8"/>
                     <TextBlock x:Name="HealthText" FontSize="12" Opacity="0.7"/>

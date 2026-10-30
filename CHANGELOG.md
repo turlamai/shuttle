@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.4.0]
+
+### Added
+
+- **Recipient addressing** — the mailbox now supports multiple people
+  sharing one relay directory. Every installation has an identity (the
+  machine name by default, customizable in Settings) and every send
+  names its recipient from the "Send to" box on the main window
+  (previous recipients remembered; the list auto-fills from machines
+  seen on the mailbox). Receivers claim only mail addressed to them;
+  mail for others is left untouched. Legacy unaddressed mail (v0.3
+  senders) is still claimed by any receiver for pair compatibility.
+- Settings gains a "machine name" field; the send flow blocks with an
+  inline hint when no recipient is set.
+
+### Changed
+
+- Multi-user deployments no longer need per-pair relay directories:
+  everybody shares one mailbox and addressing keeps deliveries separate.
+
 ## [0.3.2]
 
 ### Fixed
