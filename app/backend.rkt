@@ -658,12 +658,17 @@
       (config (hash-set* cfg 'known-peers next))
       (write-config! (config)))))
 
-;; Record a peer from any manifest we happen to read.
+;; Record peers from any manifest we happen to read: the sender and the
+;; recipient both become candidate names in everyone's selector, so
+;; colleague-to-colleague traffic makes addresses discoverable.
 (define (observe-peer-from-manifest! manifest)
-  (define sender (hash-ref manifest 'sender #f))
-  (when (string? sender)
-    (unless (same-identity? sender (my-identity))
-      (remember-peer! sender))))
+  (for ([role (in-list (list 'sender 'to))])
+    (define name (hash-ref manifest role #f))
+    (when (string? name)
+      (define trimmed (string-trim name))
+      (unless (or (string=? trimmed "")
+                  (same-identity? trimmed (my-identity)))
+        (remember-peer! trimmed)))))
 
 (define-rpc (list-known-peers : (List String))
   (hash-ref (config) 'known-peers '()))
