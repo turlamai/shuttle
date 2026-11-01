@@ -837,13 +837,15 @@ winrt::fire_and_forget MainWindow::SendPathsAsync(
     co_return;
   }
 
+  // Read WinUI controls before switching to a background apartment.
+  auto const target = winrt::to_string(TargetBox().Text());
   auto const weak = get_weak();
   co_await winrt::resume_background();
   std::vector<hstring> failures;
   for (auto const& path : paths) {
     try {
       rivet_app::API api(*backend);
-      (void)api.send_file(winrt::to_string(path)).get();
+      (void)api.send_file(winrt::to_string(path), target).get();
     } catch (std::exception const& e) {
       failures.push_back(winrt::to_hstring(e.what()));
     }
@@ -996,7 +998,7 @@ void MainWindow::ShowSettingsDialog() {
   // ShowAsync, so the save runs in the operation's completion.
   auto const operation = dialog.ShowAsync();
   operation.Completed([weak, backend, relay_box, download_box,
-                       autostart_toggle](auto const& async, auto const&) {
+                       identity_box, autostart_toggle](auto const& async, auto const&) {
     auto const result = async.GetResults();
     if (auto window = weak.get()) {
       window->settings_dialog_ = nullptr;
@@ -1005,12 +1007,14 @@ void MainWindow::ShowSettingsDialog() {
       return;
     }
     try {
+      auto window = weak.get();
+      if (!window) return;
       rivet_app::API api(*backend);
       (void)api
           .set_settings(winrt::to_string(relay_box.Text()),
                         winrt::to_string(download_box.Text()),
                         winrt::to_string(identity_box.Text()),
-                        winrt::to_string(std::wstring{TargetBox().Text()}))
+                        winrt::to_string(std::wstring{window->TargetBox().Text()}))
           .get();
     } catch (std::exception const& e) {
       if (auto window = weak.get()) {
