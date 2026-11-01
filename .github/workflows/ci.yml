@@ -32,6 +32,17 @@ jobs:
         run: |
           raco pkg install --auto --no-docs 'https://github.com/turlamai/keel.git#76a5b9fdd01bde284d310ff5c05ec73972f64201'
           raco pkg install --auto --no-docs 'https://github.com/turlamai/rivet.git#${{ env.RIVET_PIN }}'
+      - name: Verify no-certificate release contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow=.github/workflows/release.yml
+          grep -Fq 'raco rivet release --development --without-updates' "$workflow"
+          if grep -Eq 'UPDATE_ED25519_PRIVATE_KEY|RIVET_UPDATE_PRIVATE_KEY|RIVET_WINDOWS_SIGN_|update-stable.json' "$workflow"; then
+            echo "::error::Shuttle has no in-app updater; release must not require signing secrets or publish an unused update feed"
+            exit 1
+          fi
+          grep -Fq 'not Authenticode-signed' "$workflow"
       - name: Schema contract gate
         run: raco rivet schema check rivet-schema.json --json
       # The runner's MSVC toolchain is the release compiler; local
