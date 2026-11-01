@@ -86,6 +86,15 @@ runner has one):
    the relay directory at the same share path. Updates = install the new
    MSI (no in-app updater, by design).
 
+**Release trust:** Shuttle's Windows MSI and portable ZIP are intentionally
+**unsigned (no Authenticode publisher certificate)**. No paid Windows
+developer account is needed. Windows SmartScreen may warn that the publisher
+is unrecognized. Download only from the official GitHub Releases page and
+verify its SHA-256 sidecar/checksum; checksums are for integrity and are not
+a substitute for an authenticated publisher signature. Shuttle has no
+in-app updater or signed update manifest, so installing new releases is a
+manual operation. Signing could be added as an optional future release mode.
+
 Workflows: `.github/workflows/ci.yml` (acceptance on every push: schema
 contract gate + full WinUI native build) and `.github/workflows/release.yml`
 (tag-triggered). Rivet is pinned per release (`RIVET_PIN`, single source).
