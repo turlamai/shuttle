@@ -53,6 +53,12 @@ v0.3.x 的「每对机器独立目录（`.shuttle-<名字>`）」用法继续有
    - SBOM 与第三方声明留在 CI artifact，不上 release（避免边车与正文脱节）。
 4. 两台电脑各装一次 MSI（或解压便携版）即完成部署；更新时下载新 MSI 重装即可（未接应用内自动更新，属有意裁剪）。
 
+**发布可信度：** Shuttle 的 Windows MSI 和便携 ZIP 默认**没有 Authenticode 发布者签名**，
+不需要购买 Windows 开发者账户或代码签名证书。Windows SmartScreen 可能提示发布者无法识别。
+请从官方 GitHub Releases 获取安装包，并核对 SHA-256 校验值；校验和仅用于检查完整性，
+不能替代可信发布者签名。Shuttle 不提供应用内自动更新，也不发布未使用的签名更新清单，
+新版本由用户手动安装。以后可按需加入可选 Windows 代码签名。
+
 工作流：`.github/workflows/ci.yml`（push 即跑 acceptance：schema 契约门 + WinUI 全量原生构建）、`.github/workflows/release.yml`（tag 触发）。rivet 以 pin 引用（`RIVET_PIN` 单一真源）。`scripts/check-release-version.sh` 是发布预检：tag 必须带注解且与 `rivet.rktd`、生成客户端内嵌版本三方一致。
 
 ## 从源码构建
