@@ -3,11 +3,14 @@ name: CI
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
+# Do not cancel required evidence for previous main commits; only superseded
+# PR revisions can cancel one another.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Single source of truth for the rivet pin: release builds pin, local
 # development tracks the linked checkout.
