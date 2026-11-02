@@ -109,9 +109,22 @@ void BindPickerToWindow(Picker const& picker, HWND window) {
 }
 
 // i18n strings are UTF-8 string_views from the embedded table; project
-// text APIs need UTF-16 hstrings.
+// text APIs need UTF-16 hstrings. Language follows the system UI
+// language: the embedded table carries zh/en and the loader falls back
+// active -> other -> key. Chinese primary language ids map to zh;
+// everything else reads en.
+std::string const& ActiveI18nLanguage() {
+  static std::string const active = [] {
+    return PRIMARYLANGID(::GetUserDefaultUILanguage()) == 0x0004
+               ? std::string{"zh"}
+               : std::string{"en"};
+  }();
+  return active;
+}
+
 hstring tr_hstring(char const* key) {
-  return winrt::to_hstring(std::string(rivet_app::i18n::tr("zh", key)));
+  return winrt::to_hstring(
+      std::string(rivet_app::i18n::tr(ActiveI18nLanguage().c_str(), key)));
 }
 
 bool AutostartEnabled() {
@@ -504,9 +517,11 @@ winrt::fire_and_forget MainWindow::InitializeBackendAsync() {
                     window->UpsertTransfer(transfer);
                   }
                   window->caption_machine_.Text(
-                      hstring{L"本机 " +
-                              std::wstring{winrt::to_hstring(
-                                  settings.machine)}});
+                      hstring{
+                          std::wstring{tr_hstring("caption.machine")} +
+                          L" " +
+                          std::wstring{winrt::to_hstring(
+                              settings.machine)}};
                   try {
                     if (auto flavor_backend = window->backend_) {
                       rivet_app::API flavor_api(*flavor_backend);
@@ -574,7 +589,10 @@ void MainWindow::ShowError(hstring const& message) {
 
 void MainWindow::SetupPolling() {
   poll_timer_ = DispatcherTimer();
-  poll_timer_.Interval(std::chrono::milliseconds{1500});
+  // Live updates arrive as backend events (worker-thread emission is
+  // supported since rivet #364); this slow timer only reconciles —
+  // history clears, a missed event, clock drift.
+  poll_timer_.Interval(std::chrono::milliseconds{10000});
   poll_timer_.Tick([weak = get_weak()](auto const&, auto const&) {
     if (auto window = weak.get()) {
       window->PollTransfers();
@@ -731,8 +749,9 @@ void MainWindow::PollUpdatePhase(
       update_install_armed_ = true;
       if (auto const version = api.updater_available_version().get();
           !version.empty()) {
-        set_status(hstring{L"已就绪 " +
-                           std::wstring{winrt::to_hstring(version)}});
+        set_status(hstring{
+            std::wstring{tr_hstring("update.ready")} + L" " +
+            std::wstring{winrt::to_hstring(version)}});
       } else {
         set_status(hstring(tr_hstring("update.downloaded")));
       }
@@ -750,9 +769,9 @@ void MainWindow::PollUpdatePhase(
       set_button(hstring(tr_hstring("update.check")), true);
     } else if (phase == "downloading") {
       auto const percent = api.updater_percent().get();
-      set_status(hstring{L"下载中 " + std::to_wstring(percent) +
-                         L"%"});
-    }
+      set_status(hstring{
+          std::wstring{tr_hstring("update.progress")} + L" " +
+          std::to_wstring(percent) + L"%"});
   } catch (std::exception const& e) {
     ShowError(winrt::to_hstring(e.what()));
     StopUpdateTimer();

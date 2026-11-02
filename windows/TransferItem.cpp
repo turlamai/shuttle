@@ -39,8 +39,18 @@ std::wstring short_stamp(std::wstring const& stamp) {
   return stamp;
 }
 
+std::string const& ActiveI18nLanguage() {
+  static std::string const active = [] {
+    return PRIMARYLANGID(::GetUserDefaultUILanguage()) == 0x0004
+               ? std::string{"zh"}
+               : std::string{"en"};
+  }();
+  return active;
+}
+
 hstring tr_hstring(char const* key) {
-  return winrt::to_hstring(std::string(rivet_app::i18n::tr("zh", key)));
+  return winrt::to_hstring(
+      std::string(rivet_app::i18n::tr(ActiveI18nLanguage().c_str(), key)));
 }
 
 }  // namespace

@@ -3,6 +3,7 @@
   "browse.download-dir": "选择下载目录",
   "browse.pick-files": "选择要发送的文件",
   "browse.relay-dir": "选择中转目录",
+  "caption.machine": "本机",
   "drop.subtitle": "文件经共享信箱直达另一台电脑，到达后自动通知",
   "drop.title": "拖放文件即可发送",
   "error.backend-not-ready": "后端未就绪，请稍候",
@@ -39,6 +40,9 @@
   "update.idle": "更新",
   "update.install": "安装并重启",
   "update.openreleases": "已打开 Releases 页面，请下载最新 MSI 安装",
+  "update.progress": "下载中",
+  "update.ready": "已就绪",
+  "update.ready-restart": "已就绪，安装并重启",
   "update.uptodate": "已是最新版本",
   "update.working": "请稍候…"
 }

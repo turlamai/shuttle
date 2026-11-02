@@ -3,6 +3,7 @@
   "browse.download-dir": "Choose download directory",
   "browse.pick-files": "Choose files to send",
   "browse.relay-dir": "Choose relay directory",
+  "caption.machine": "This machine",
   "drop.subtitle": "Files travel through the shared mailbox and arrive on the other PC with a notification",
   "drop.title": "Drop files to send",
   "error.backend-not-ready": "Backend is not ready yet",
@@ -39,6 +40,9 @@
   "update.idle": "Updates",
   "update.install": "Install and restart",
   "update.openreleases": "Opened the Releases page — grab the latest MSI there",
+  "update.progress": "Downloading",
+  "update.ready": "Ready",
+  "update.ready-restart": "Ready — install and restart",
   "update.uptodate": "You are up to date",
   "update.working": "Please wait…"
 }
