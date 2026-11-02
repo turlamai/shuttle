@@ -101,6 +101,13 @@ racket -e '(require (submod "app/backend.rkt" test)) (test-main)'   # 真实共�
 
 技术栈：Racket 后端（全部业务逻辑）+ WinUI 3 原生宿主（展示与系统集成），经 [rivet](https://github.com/turlamai/rivet) 的 typed RPC 通信。
 
+## 文档
+
+- [信箱协议规范](docs/PROTOCOL.md)——线格式、认领规则、崩溃容忍、权限自愈
+- [架构说明](docs/ARCHITECTURE.md)——分层边界与关键不变式
+- [参与贡献](CONTRIBUTING.md)——工具链、开发循环、house rules
+- [安全策略](SECURITY.md)——更新信任模型与漏洞反馈
+
 ## 目录结构
 
 ```
