@@ -772,6 +772,7 @@ void MainWindow::PollUpdatePhase(
       set_status(hstring{
           std::wstring{tr_hstring("update.progress")} + L" " +
           std::to_wstring(percent) + L"%"});
+    }
   } catch (std::exception const& e) {
     ShowError(winrt::to_hstring(e.what()));
     StopUpdateTimer();
