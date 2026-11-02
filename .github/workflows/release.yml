@@ -51,7 +51,7 @@ jobs:
         run: bash scripts/check-release-version.sh "${{ github.ref_name }}"
       # The repository is public: releases/latest/download serves the
       # signed manifest anonymously, so in-app updates work end to end.
-      - name: Release (signed MSI + portable zip + signed update manifest)
+      - name: Release (unsigned MSI + portable zip + signed update manifest)
         shell: pwsh
         env:
           RIVET_UPDATE_BASE_URL: https://github.com/turlamai/shuttle/releases/latest/download
@@ -122,8 +122,11 @@ jobs:
           Shuttle's MSI and portable ZIP are **not Authenticode-signed**. Windows
           SmartScreen may warn that the publisher is unrecognized. Verify the
           GitHub release source and its SHA-256 checksums before installation.
-          Shuttle does not self-update: install a newer MSI manually or replace
-          the portable directory. No paid Windows developer account is required.
+          MSI installations include an Ed25519-verified update flow; portable
+          ZIP installations require manual replacement. Update-manifest signing
+          does not provide an Authenticode publisher identity. No paid Windows
+          developer account is required. Fresh-install, upgrade and rollback
+          qualification must be checked separately for each release.
           NOTICE
       - name: Publish release
         env:
