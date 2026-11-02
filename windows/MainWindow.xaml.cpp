@@ -521,7 +521,7 @@ winrt::fire_and_forget MainWindow::InitializeBackendAsync() {
                           std::wstring{tr_hstring("caption.machine")} +
                           L" " +
                           std::wstring{winrt::to_hstring(
-                              settings.machine)}};
+                              settings.machine)}});
                   try {
                     if (auto flavor_backend = window->backend_) {
                       rivet_app::API flavor_api(*flavor_backend);
