@@ -161,12 +161,21 @@ Stack: Racket backend (all product logic) + WinUI 3 native host
 (presentation and OS integration) over [rivet](https://github.com/turlamai/rivet)
 typed RPC.
 
+## Documentation
+
+- [The mailbox protocol](docs/PROTOCOL.md) — wire format, claim rules,
+  crash tolerance, permission self-heal
+- [Architecture](docs/ARCHITECTURE.md) — layer boundaries and invariants
+- [Contributing](CONTRIBUTING.md) — toolchain, dev loop, house rules
+- [Security policy](SECURITY.md) — update trust model and reporting
+
 ## Repository layout
 
 ```
-app/backend.rkt        Racket engine + RVT1 contract (mailbox, polling, icacls, config, history)
-windows/               WinUI 3 host (XAML + C++/WinRT: drag-drop, list, tray, settings)
+app/backend.rkt        Racket engine + RVT1 contract (mailbox, addressing, sweeps, config)
+windows/               WinUI 3 host (XAML + C++/WinRT: drop zone, list, tray, settings)
 shared/i18n/           UI string single source (zh/en)
 assets/app.ico         application icon
 scripts/               release preflight
+docs/                  PROTOCOL / ARCHITECTURE / screenshots
 ```
