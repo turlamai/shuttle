@@ -83,17 +83,21 @@ runner has one):
    - SBOM and third-party notices stay in CI artifacts only, never on the
      release (a sidecar without its body is a dangling reference).
 4. Deploy per PC: install the MSI once (or unpack the portable zip), point
-   the relay directory at the same share path. Updates = install the new
-   MSI (no in-app updater, by design).
+   the relay directory at the same share path. MSI installs include a Settings
+   update flow backed by an Ed25519-signed manifest; portable installs require
+   manual replacement. Fresh-machine MSI upgrade and rollback qualification
+   remains a release gate, not a claim established by the source code.
 
 **Release trust:** Shuttle's Windows MSI and portable ZIP are intentionally
 **unsigned (no Authenticode publisher certificate)**. No paid Windows
 developer account is needed. Windows SmartScreen may warn that the publisher
 is unrecognized. Download only from the official GitHub Releases page and
 verify its SHA-256 sidecar/checksum; checksums are for integrity and are not
-a substitute for an authenticated publisher signature. Shuttle has no
-in-app updater or signed update manifest, so installing new releases is a
-manual operation. Signing could be added as an optional future release mode.
+a substitute for an authenticated publisher signature. The implemented MSI
+updater requires a separately signed Ed25519 manifest and verifies artifact
+size and SHA-256; this does not give Windows a trusted publisher identity.
+Portable ZIP updates remain manual. Authenticode signing could be added as
+an optional future release mode without removing update-manifest verification.
 
 Workflows: `.github/workflows/ci.yml` (acceptance on every push: schema
 contract gate + full WinUI native build) and `.github/workflows/release.yml`

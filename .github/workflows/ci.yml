@@ -35,16 +35,22 @@ jobs:
         run: |
           raco pkg install --auto --no-docs 'https://github.com/turlamai/keel.git#76a5b9fdd01bde284d310ff5c05ec73972f64201'
           raco pkg install --auto --no-docs 'https://github.com/turlamai/rivet.git#${{ env.RIVET_PIN }}'
-      - name: Verify no-certificate release contract
+      - name: Verify independent Windows publisher and update-signing contracts
         shell: bash
         run: |
           set -euo pipefail
           workflow=.github/workflows/release.yml
-          grep -Fq 'raco rivet release --development --without-updates' "$workflow"
-          if grep -Eq 'UPDATE_ED25519_PRIVATE_KEY|RIVET_UPDATE_PRIVATE_KEY|RIVET_WINDOWS_SIGN_|update-stable.json' "$workflow"; then
-            echo "::error::Shuttle has no in-app updater; release must not require signing secrets or publish an unused update feed"
+          grep -Fq 'run: raco rivet release --development' "$workflow"
+          if grep -Eq -- '--without-updates|RIVET_WINDOWS_SIGN_' "$workflow"; then
+            echo "::error::Shuttle must retain signed MSI updates without requiring an Authenticode certificate"
             exit 1
           fi
+          grep -Fq 'secrets.UPDATE_ED25519_PRIVATE_KEY' "$workflow"
+          grep -Fq 'openssl pkey -inform DER' "$workflow"
+          grep -Fq 'RIVET_UPDATE_PRIVATE_KEY:' "$workflow"
+          grep -Fq 'RIVET_UPDATE_KEY_ID: update-2026-10' "$workflow"
+          grep -Fq 'dist/update-stable.json' "$workflow"
+          grep -Fq 'for pattern in *.zip *.msi *.sha256 update-stable.json' "$workflow"
           grep -Fq 'not Authenticode-signed' "$workflow"
       - name: Schema contract gate
         run: raco rivet schema check rivet-schema.json --json
