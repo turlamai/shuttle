@@ -1,0 +1,168 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Single source of truth for the rivet pin; every install step below
+# references this so a bump is one edit, not a grep-replace across jobs.
+env:
+  RIVET_PIN: 08da1f6dfc668ecbf5ef17b449b7005bc1b77528
+
+jobs:
+  windows:
+    name: Windows (x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Racket CS
+        uses: Bogdanp/setup-racket@v1.15
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: '9.3'
+      - name: Install Rivet (pinned, with keel below the tests/documentation collision)
+        shell: pwsh
+        run: |
+          raco pkg install --auto --no-docs 'https://github.com/turlamai/keel.git#76a5b9fdd01bde284d310ff5c05ec73972f64201'
+          raco pkg install --auto --no-docs 'https://github.com/turlamai/rivet.git#${{ env.RIVET_PIN }}'
+      - name: Install WiX (v5; rivet's MSI toolchain)
+        run: dotnet tool install --global wix --version 5.0.2
+        shell: bash
+      - name: Restore update signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${{ secrets.UPDATE_ED25519_PRIVATE_KEY }}" || { echo "::error::UPDATE_ED25519_PRIVATE_KEY is missing"; exit 1; }
+          base64 -d <<< "${{ secrets.UPDATE_ED25519_PRIVATE_KEY }}" > "$RUNNER_TEMP/update-private.der"
+          openssl pkey -inform DER -in "$RUNNER_TEMP/update-private.der" -noout 2>/dev/null || {
+            echo "::error::update signing key is not a valid DER private key"; exit 1; }
+      - name: Version preflight (tag == rivet.rktd == generated client; annotated tag required)
+        shell: bash
+        run: bash scripts/check-release-version.sh "${{ github.ref_name }}"
+      # The repository is public: releases/latest/download serves the
+      # signed manifest anonymously, so in-app updates work end to end.
+      - name: Release (signed MSI + portable zip + signed update manifest)
+        shell: pwsh
+        env:
+          RIVET_UPDATE_BASE_URL: https://github.com/turlamai/shuttle/releases/latest/download
+          RIVET_UPDATE_PRIVATE_KEY: ${{ runner.temp }}/update-private.der
+          RIVET_UPDATE_KEY_ID: update-2026-10
+        run: raco rivet release --development
+      - name: Family naming + checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          cd dist
+          # rivet (pinned RIVET_PIN) names msi and portable zip in family
+          # form already; give the SBOM/notices the family name too.
+          mv sbom.cdx.json "shuttle-${VERSION}-windows-x64.sbom.cdx.json"
+          mv THIRD_PARTY_NOTICES.txt "shuttle-${VERSION}-windows-x64-THIRD_PARTY_NOTICES.txt"
+          for f in shuttle-*; do
+            case "$f" in
+              *.sha256) ;;
+              # The sbom/notices/wixpdb bodies stay in the CI artifact only;
+              # a sidecar without its body on the release is a dangling
+              # reference. Checksum what we upload.
+              *.sbom.cdx.json | *-THIRD_PARTY_NOTICES.txt | *.wixpdb) ;;
+              *) [ -f "$f" ] || continue; [ -f "$f.sha256" ] || sha256sum "$f" > "$f.sha256";;
+            esac
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/shuttle-*
+            dist/update-stable.json
+
+  publish:
+    name: Publish
+    needs: [windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version preflight
+        run: bash scripts/check-release-version.sh "$GITHUB_REF_NAME"
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Gather artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # cp -R merges: rivet releases may leave a staging bundle dir in
+          # the artifact, and a plain mv dies on the directory collision.
+          cp -R artifacts/windows/. dist/
+      - name: Release notes from CHANGELOG
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v header="## [${VERSION}]" '
+            index($0, header) == 1 {on=1; next}
+            on && /^## / {exit}
+            on {print}
+          ' CHANGELOG.md > /tmp/notes.md
+          if [[ ! -s /tmp/notes.md ]]; then
+            echo "::error::CHANGELOG.md lacks release notes for ${VERSION}"
+            exit 1
+          fi
+          cat >> /tmp/notes.md <<'NOTICE'
+
+          ### Windows distribution trust
+          Shuttle's MSI and portable ZIP are **not Authenticode-signed**. Windows
+          SmartScreen may warn that the publisher is unrecognized. Verify the
+          GitHub release source and its SHA-256 checksums before installation.
+          Shuttle does not self-update: install a newer MSI manually or replace
+          the portable directory. No paid Windows developer account is required.
+          NOTICE
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          cd dist
+          # Normalize: Windows runners' sha256sum emits binary-mode
+          # "HASH *name" lines; keep SHA256SUMS uniform in the two-space
+          # text form.
+          cat *.sha256 | sed 's/ \*/  /' > SHA256SUMS
+          uploads=( )
+          for pattern in *.zip *.msi *.sha256 update-stable.json; do
+            uploads+=( "$pattern" )
+          done
+          uploads+=( SHA256SUMS )
+          # Idempotent publish: a failed run leaves the release (and some
+          # assets) behind; re-runs edit + re-upload over it instead of
+          # colliding with "release already exists".
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --notes-file /tmp/notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "Shuttle ${VERSION}" \
+              --notes-file /tmp/notes.md
+          fi
+          gh release upload "$GITHUB_REF_NAME" --clobber "${uploads[@]}"
+      - name: Stable alias copies (versionless direct-download links)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Family rule: download buttons point at
+          # releases/latest/download/<alias>, so every release also ships
+          # versionless copies of the primary installers. Aliases are
+          # overwritten on each release; the versioned assets stay canonical.
+          mkdir -p stable-alias
+          cp "dist/shuttle-${VERSION}-windows-x64.msi" stable-alias/shuttle-windows-x64.msi
+          cp "dist/shuttle-${VERSION}-windows-x64.zip" stable-alias/shuttle-windows-x64.zip
+          gh release upload "$GITHUB_REF_NAME" stable-alias/* --clobber

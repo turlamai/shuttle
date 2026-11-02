@@ -1,0 +1,17 @@
+.rivet/
+build/
+dist/
+windows/Generated Files/
+windows/obj/
+windows/RivetHost/
+macos-host/.build/
+.DS_Store
+
+compiled/
+*.zo
+raco-obj/
+
+macos-host/
+linux/
+windows/XamlMetaDataProvider.cpp
+windows/XamlMetaDataProvider.idl

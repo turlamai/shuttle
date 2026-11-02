@@ -1,0 +1,18 @@
+namespace RivetHost
+{
+    [bindable]
+    [default_interface]
+    runtimeclass TransferItem : Microsoft.UI.Xaml.Data.INotifyPropertyChanged
+    {
+        TransferItem();
+
+        String Id { get; };
+        String Filename { get; };
+        String DirectionGlyph { get; };
+        String MessageText { get; };
+        String StatusText { get; };
+        String SizeStampText { get; };
+        Double Progress { get; };
+        Microsoft.UI.Xaml.Visibility ProgressVisibility { get; };
+    }
+}

@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Do not cancel required evidence for previous main commits; only superseded
+# PR revisions can cancel one another.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Single source of truth for the rivet pin: release builds pin, local
+# development tracks the linked checkout.
+env:
+  RIVET_PIN: 08da1f6dfc668ecbf5ef17b449b7005bc1b77528
+
+jobs:
+  windows:
+    name: Windows (x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Racket CS
+        uses: Bogdanp/setup-racket@v1.15
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: '9.3'
+      - name: Install Rivet (pinned, with keel below the tests/documentation collision)
+        shell: pwsh
+        run: |
+          raco pkg install --auto --no-docs 'https://github.com/turlamai/keel.git#76a5b9fdd01bde284d310ff5c05ec73972f64201'
+          raco pkg install --auto --no-docs 'https://github.com/turlamai/rivet.git#${{ env.RIVET_PIN }}'
+      - name: Verify no-certificate release contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow=.github/workflows/release.yml
+          grep -Fq 'raco rivet release --development --without-updates' "$workflow"
+          if grep -Eq 'UPDATE_ED25519_PRIVATE_KEY|RIVET_UPDATE_PRIVATE_KEY|RIVET_WINDOWS_SIGN_|update-stable.json' "$workflow"; then
+            echo "::error::Shuttle has no in-app updater; release must not require signing secrets or publish an unused update feed"
+            exit 1
+          fi
+          grep -Fq 'not Authenticode-signed' "$workflow"
+      - name: Schema contract gate
+        run: raco rivet schema check rivet-schema.json --json
+      # The runner's MSVC toolchain is the release compiler; local
+      # machines without Build Tools stay green through this job. Plain
+      # output so MSVC/XAML errors land directly in the log.
+      - name: Native build (WinUI 3 host)
+        run: raco rivet build
+      - name: Backend engine tests (pure units)
+        run: raco test app/backend.rkt
