@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.1.0]
+
+### Added
+
+- **The UI now follows the system language** (zh/en); the remaining
+  hardcoded strings (caption prefix, download progress) joined the i18n
+  single source.
+- **Event-driven transfer list**: transfers update live from backend
+  events (worker-thread emission, rivet #364); the slow timer now only
+  reconciles.
+
+### Changed
+
+- `RIVET_PIN` bumps to rivet main, including fail-closed signed-feed
+  validation (#378) and multi-installer feed composition (#380).
+- Documentation set: mailbox protocol spec, architecture, contributing
+  guide (including the UWP-component toolchain trap), security policy;
+  public README gains a sanitized production screenshot.
+
 ## [1.0.0] — first public release
 
 ### Added
