@@ -307,7 +307,7 @@ void MainWindow::SetupLocalization() {
   transfers_list_.ItemsSource(rows);
   // A completed received row opens its containing folder.
   transfers_list_.ItemClick(
-      [weak = get_weak](auto const&, Controls::ItemClickEventArgs const& args) {
+      [weak = get_weak()](auto const&, DataTransfer::ItemClickEventArgs const& args) {
         if (auto item = args.ClickedItem().try_as<winrt::RivetHost::TransferItem>()) {
           if (item.OpenFolderVisibility() == Visibility::Visible) {
             auto const parent = std::filesystem::path{
@@ -347,7 +347,11 @@ void MainWindow::SetupLocalization() {
     }
   });
 
-  TargetBox().TextChanged([weak = get_weak()](auto const&, auto const&) {
+  // WinUI 3 ComboBox has no TextChanged; drop title refreshes when a
+  // known peer is picked, on settings load, and on target edits made
+  // through the Settings dialog.
+  TargetBox().SelectionChanged([weak = get_weak()](auto const&,
+                                                   auto const&) {
     if (auto window = weak.get()) {
       window->UpdateDropTitle();
     }

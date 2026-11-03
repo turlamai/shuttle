@@ -86,6 +86,8 @@ struct MainWindow : MainWindowT<MainWindow> {
   bool update_install_armed_ = false;
   // Leaf name of the download directory, shown in receive toasts.
   std::wstring saved_leaf_ = L"Shuttle";
+  // Language picked in the settings dialog, applied on save.
+  std::wstring pending_ui_language_ = L"auto";
 
   std::map<std::wstring, winrt::RivetHost::TransferItem, std::less<>> items_;
 
