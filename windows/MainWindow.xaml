@@ -162,7 +162,6 @@
                     x:Name="TransfersList"
                     ItemTemplate="{StaticResource TransferTemplate}"
                     SelectionMode="None"
-                    IsItemClickEnabled="True"
                     IsItemClickEnabled="True"/>
                 <TextBlock
                     x:Name="EmptyState"
