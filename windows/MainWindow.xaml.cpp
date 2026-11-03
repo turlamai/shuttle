@@ -880,10 +880,10 @@ void MainWindow::UpsertTransfer(rivet_app::Transfer const& transfer) {
     if (transfer.direction == rivet_app::Direction::receive &&
         transfer.status == rivet_app::TransferStatus::received &&
         tray_ != nullptr) {
-      tray_->Notify(std::wstring{tr_hstring("notify.received-title")},
-                    std::wstring{winrt::to_hstring(transfer.filename)} + L"
-" +
-                        saved_leaf_);
+      tray_->Notify(
+          std::wstring{tr_hstring("notify.received-title")},
+          std::wstring{winrt::to_hstring(transfer.filename)} + L"\n" +
+              saved_leaf_);
     }
   } else {
     auto self = winrt::get_self<TransferItem>(existing->second);
@@ -1084,8 +1084,8 @@ void MainWindow::ShowSettingsDialog() {
   // WinUI 3 ContentDialog exposes the dismissal result only through
   // ShowAsync, so the save runs in the operation's completion.
   auto const operation = dialog.ShowAsync();
-  operation.Completed([weak, backend, relay_box, download_box,
-                       identity_box, autostart_toggle](auto const& async, auto const&) {
+  operation.Completed([weak, backend, relay_box, download_box, identity_box,
+                       language_box, autostart_toggle](auto const& async, auto const&) {
     auto const result = async.GetResults();
     if (auto window = weak.get()) {
       window->settings_dialog_ = nullptr;
