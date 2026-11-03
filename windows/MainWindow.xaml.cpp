@@ -313,7 +313,7 @@ void MainWindow::SetupLocalization() {
             auto const parent = std::filesystem::path{
                 std::wstring{item.LocalPath()}}.parent_path();
             (void)Windows::System::Launcher::LaunchFolderAsync(
-                Windows::Storage::StorageFolder::GetFolderFromPathAsync(parent)
+                Windows::Storage::StorageFolder::GetFolderFromPathAsync(winrt::hstring{parent.wstring()})
                     .get());
           }
         }
