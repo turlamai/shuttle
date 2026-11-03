@@ -307,13 +307,13 @@ void MainWindow::SetupLocalization() {
   transfers_list_.ItemsSource(rows);
   // A completed received row opens its containing folder.
   transfers_list_.ItemClick(
-      [weak = get_weak()](auto const&, DataTransfer::ItemClickEventArgs const& args) {
+      [weak = get_weak()](auto const&, ItemClickEventArgs const& args) {
         if (auto item = args.ClickedItem().try_as<winrt::RivetHost::TransferItem>()) {
           if (item.OpenFolderVisibility() == Visibility::Visible) {
             auto const parent = std::filesystem::path{
                 std::wstring{item.LocalPath()}}.parent_path();
             (void)Windows::System::Launcher::LaunchFolderAsync(
-                Windows::Storage::StorageFolder::GetFolderFromPathAsync(parent)
+                Windows::Storage::StorageFolder::GetFolderFromPathAsync(winrt::hstring{parent.wstring()})
                     .get());
           }
         }
@@ -881,8 +881,7 @@ void MainWindow::UpsertTransfer(rivet_app::Transfer const& transfer) {
         transfer.status == rivet_app::TransferStatus::received &&
         tray_ != nullptr) {
       tray_->Notify(std::wstring{tr_hstring("notify.received-title")},
-                    std::wstring{winrt::to_hstring(transfer.filename)} + L"
-" +
+                    std::wstring{winrt::to_hstring(transfer.filename)} + L"\n" +
                         saved_leaf_);
     }
   } else {
@@ -1085,7 +1084,7 @@ void MainWindow::ShowSettingsDialog() {
   // ShowAsync, so the save runs in the operation's completion.
   auto const operation = dialog.ShowAsync();
   operation.Completed([weak, backend, relay_box, download_box,
-                       identity_box, autostart_toggle](auto const& async, auto const&) {
+                       identity_box, language_box, autostart_toggle](auto const& async, auto const&) {
     auto const result = async.GetResults();
     if (auto window = weak.get()) {
       window->settings_dialog_ = nullptr;
