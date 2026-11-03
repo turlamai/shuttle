@@ -24,6 +24,10 @@ struct TransferItem : TransferItemT<TransferItem> {
              winrt::hstring const& local_path);
 
   hstring Id() const { return id_; }
+  hstring LocalPath() const { return local_path_; }
+  winrt::Microsoft::UI::Xaml::Visibility OpenFolderVisibility() const {
+    return open_folder_visibility_;
+  }
   hstring Filename() const { return filename_; }
   hstring DirectionGlyph() const { return direction_glyph_; }
   hstring MessageText() const { return message_text_; }
@@ -50,6 +54,9 @@ struct TransferItem : TransferItemT<TransferItem> {
   hstring size_stamp_text_{};
   double progress_ = 0.0;
   winrt::Microsoft::UI::Xaml::Visibility progress_visibility_ =
+      winrt::Microsoft::UI::Xaml::Visibility::Collapsed;
+  hstring local_path_{};
+  winrt::Microsoft::UI::Xaml::Visibility open_folder_visibility_ =
       winrt::Microsoft::UI::Xaml::Visibility::Collapsed;
   std::int32_t direction_ = 0;   // 0 send, 1 receive
   std::int32_t status_ = 0;      // TransferStatus ordinal

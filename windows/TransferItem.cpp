@@ -73,6 +73,11 @@ void TransferItem::Apply(std::int32_t direction, hstring const& filename,
   bool const changed_status = !applied_ || status_ != status;
   bool const changed_message = !applied_ || message_text_ != message;
   bool const changed_stamp = !applied_ || size_stamp_text_ != stamp;
+  winrt::Microsoft::UI::Xaml::Visibility const open_visibility =
+      (direction == 1 && status == 3) ? Visibility::Visible
+                                      : Visibility::Collapsed;
+  bool const changed_open =
+      !applied_ || open_folder_visibility_ != open_visibility;
 
   direction_ = direction;
   filename_ = filename;
@@ -111,6 +116,11 @@ void TransferItem::Apply(std::int32_t direction, hstring const& filename,
     progress_visibility_ = active ? Visibility::Visible : Visibility::Collapsed;
   }
 
+  if (changed_open) {
+    open_folder_visibility_ = open_visibility;
+  }
+  local_path_ = local_path;
+
   std::wstring const stamp_text =
       format_bytes(size) + L" \u00b7 " + short_stamp(std::wstring{stamp});
   size_stamp_text_ = hstring(stamp_text);
@@ -126,6 +136,7 @@ void TransferItem::Apply(std::int32_t direction, hstring const& filename,
     Raise(L"SizeStampText");
     Raise(L"Progress");
     Raise(L"ProgressVisibility");
+    Raise(L"OpenFolderVisibility");
     return;
   }
 
@@ -138,6 +149,7 @@ void TransferItem::Apply(std::int32_t direction, hstring const& filename,
     Raise(L"Progress");
     Raise(L"ProgressVisibility");
   }
+  if (changed_open) Raise(L"OpenFolderVisibility");
 }
 
 }  // namespace winrt::RivetHost::implementation
