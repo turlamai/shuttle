@@ -7,6 +7,8 @@ namespace RivetHost
         TransferItem();
 
         String Id { get; };
+        String LocalPath { get; };
+        Microsoft.UI.Xaml.Visibility OpenFolderVisibility { get; };
         String Filename { get; };
         String DirectionGlyph { get; };
         String MessageText { get; };

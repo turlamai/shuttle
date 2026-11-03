@@ -92,6 +92,7 @@
     <ClInclude Include="MainWindow.xaml.h"><DependentUpon>MainWindow.xaml</DependentUpon></ClInclude>
     <ClInclude Include="TransferItem.h"><DependentUpon>TransferItem.idl</DependentUpon></ClInclude>
     <ClInclude Include="i18n.hpp" />
+    <ClInclude Include="i18n-language.h" />
     <ClInclude Include="GeneratedI18n.hpp" />
     <ClInclude Include="GeneratedBackend.hpp" />
     <ClInclude Include="$(RIVET_ROOT)\platform\windows\runtime\backend.hpp" />

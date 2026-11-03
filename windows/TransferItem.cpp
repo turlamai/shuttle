@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "TransferItem.h"
+#include "i18n-language.h"
 #if __has_include("TransferItem.g.cpp")
 #include "TransferItem.g.cpp"
 #endif
@@ -39,18 +40,11 @@ std::wstring short_stamp(std::wstring const& stamp) {
   return stamp;
 }
 
-std::string const& ActiveI18nLanguage() {
-  static std::string const active = [] {
-    return PRIMARYLANGID(::GetUserDefaultUILanguage()) == 0x0004
-               ? std::string{"zh"}
-               : std::string{"en"};
-  }();
-  return active;
-}
-
 hstring tr_hstring(char const* key) {
   return winrt::to_hstring(
-      std::string(rivet_app::i18n::tr(ActiveI18nLanguage().c_str(), key)));
+      std::string(rivet_app::i18n::tr(rivet_app::i18n::ActiveLanguage()
+                                          .c_str(),
+                                      key)));
 }
 
 }  // namespace
@@ -71,7 +65,7 @@ void TransferItem::Raise(std::wstring_view property) {
 void TransferItem::Apply(std::int32_t direction, hstring const& filename,
                          std::int64_t size, std::int64_t progress,
                          std::int32_t status, hstring const& message,
-                         hstring const& stamp) {
+                         hstring const& stamp, hstring const& local_path) {
   bool const changed_direction = !applied_ || direction_ != direction;
   bool const changed_filename = !applied_ || filename_ != filename;
   bool const changed_size = !applied_ || size_ != size;

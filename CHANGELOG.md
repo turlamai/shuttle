@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.2.0]
+
+### Added
+
+- **Received files open in one click**: completed received rows show an
+  "打开所在文件夹" hint; clicking the row opens the containing folder
+  with the file selected. Receive toasts now state where files were
+  saved.
+- **The drop zone states the recipient inline**: "拖放文件发给
+  <target>" once a target is set, or "先填写对方的电脑名" when it is
+  not — no manual reading required to understand the flow. The target
+  placeholder now explains that the name is visible in the peer's
+  Shuttle title bar, and Settings shows the same hint under the machine
+  name field.
+
+### Changed
+
+- The default relay directory is a generic `Z:\Shared\Shuttle`
+  (config overrides persist); setup docs updated accordingly.
+
 ## [1.1.0]
 
 ### Added

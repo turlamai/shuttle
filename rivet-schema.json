@@ -93,6 +93,13 @@
             "kind": "scalar",
             "name": "String"
           }
+        },
+        {
+          "name": "ui-language",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
         }
       ],
       "name": "Settings"
@@ -150,6 +157,13 @@
         },
         {
           "name": "stamp",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "local-path",
           "type": {
             "kind": "scalar",
             "name": "String"
@@ -286,6 +300,13 @@
         },
         {
           "name": "target",
+          "type": {
+            "kind": "scalar",
+            "name": "String"
+          }
+        },
+        {
+          "name": "ui-language",
           "type": {
             "kind": "scalar",
             "name": "String"

@@ -39,6 +39,11 @@ struct MainWindow : MainWindowT<MainWindow> {
   void SetupTray();
   void SetupPolling();
   void PollTransfers();
+  void UpdateDropTitle();
+  void ApplyLanguageRefresh();
+  void TransfersList_ItemClick(
+      winrt::Windows::Foundation::IInspectable const& sender,
+      winrt::Microsoft::UI::Xaml::Controls::ItemClickEventArgs const& args);
   void SetUpdateTimer(
       winrt::Microsoft::UI::Xaml::DispatcherTimer timer);
   void StartUpdateTimer();
@@ -79,6 +84,8 @@ struct MainWindow : MainWindowT<MainWindow> {
   // Update state machine: once a verified artifact is on disk the
   // button turns into "install and restart".
   bool update_install_armed_ = false;
+  // Leaf name of the download directory, shown in receive toasts.
+  std::wstring saved_leaf_ = L"Shuttle";
 
   std::map<std::wstring, winrt::RivetHost::TransferItem, std::less<>> items_;
 

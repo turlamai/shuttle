@@ -43,14 +43,16 @@
    [progress : Int64]
    [status : TransferStatus]
    [message : String]
-   [stamp : String]))
+   [stamp : String]
+   [local-path : String]))
 
 (define-record Settings
   ([relay-dir : String]
    [download-dir : String]
    [machine : String]
    [identity : String]
-   [target : String]))
+   [target : String]
+   [ui-language : String]))
 
 (define-record RelayHealth
   ([ok : Bool]
@@ -65,7 +67,7 @@
 
 ;; Bumped together with rivet.rktd and the generated C++ client; the
 ;; release preflight (scripts/check-release-version.sh) asserts all four.
-(define app-version "1.1.0")
+(define app-version "1.2.0")
 
 ;; Ed25519 public key (raw 32 bytes, base64) that signed update
 ;; manifests must verify against. Private half lives in the
@@ -274,7 +276,8 @@
   (define entry
     (hasheq 'id id 'direction direction 'filename filename
             'size size 'progress 0 'status status
-            'message message 'stamp stamp))
+            'message message 'stamp stamp
+            'local-path ""))
   (call-with-semaphore state-lock
     (lambda () (hash-set! transfers-table id entry)))
   (emit-safe! (lambda () (transfer-changed (entry->record entry))))
@@ -303,7 +306,8 @@
             (hash-ref entry 'progress)
             (TransferStatus (hash-ref entry 'status))
             (hash-ref entry 'message)
-            (hash-ref entry 'stamp)))
+            (hash-ref entry 'stamp)
+            (hash-ref entry 'local-path "")))
 
 (define (snapshot-transfers)
   (call-with-semaphore state-lock
@@ -638,6 +642,11 @@
         (finish! 'failed "信箱中缺少文件内容，已跳过"))
       (define dest (unique-dest downloads safe-name))
       (define copied (copy-with-progress! payload dest id))
+      (call-with-semaphore state-lock
+        (lambda ()
+          (hash-set! transfers-table
+                     id (hash-set* (hash-ref transfers-table id)
+                                   'local-path (path->display dest)))))
       (unless (= copied size)
         (with-handlers ([exn:fail? void]) (delete-file dest))
         (finish! 'failed "大小校验不一致，已丢弃本地副本"))
@@ -877,7 +886,8 @@
   (settings-record))
 
 (define-rpc (set-settings [relay-dir : String] [download-dir : String]
-                          [identity : String] [target : String] : Settings)
+                          [identity : String] [target : String]
+                          [ui-language : String] : Settings)
   (define relay (string->path (string-trim relay-dir)))
   (define downloads (string->path (string-trim download-dir)))
   (with-handlers ([exn:fail?
@@ -889,13 +899,17 @@
                      (error 'shuttle "无法创建下载目录：~a" (exn-message e)))])
     (make-directory* downloads))
   (define trimmed-identity (string-trim identity))
+  (define lang (string-trim ui-language))
   (config (hash-set* (config)
                      'relay-dir (path->display relay)
                      'download-dir (path->display downloads)
                      'identity (if (string=? trimmed-identity "")
                                    (this-machine)
                                    trimmed-identity)
-                     'target (string-trim target)))
+                     'target (string-trim target)
+                     'ui-language (if (member lang '("auto" "zh" "en"))
+                                      lang
+                                      "auto")))
   (write-config! (config))
   (config-relay-ok-param 'unknown) ; force a fresh health event on next poll
   (settings-record))
@@ -903,11 +917,13 @@
 (define (settings-record)
   (define cfg (config))
   (define configured (string-trim (hash-ref cfg 'identity "")))
+  (define lang (string-trim (hash-ref cfg 'ui-language "auto")))
   (Settings (hash-ref cfg 'relay-dir)
             (hash-ref cfg 'download-dir)
             (this-machine)
             (if (string=? configured "") (this-machine) configured)
-            (string-trim (hash-ref cfg 'target ""))))
+            (string-trim (hash-ref cfg 'target ""))
+            (if (member lang '("auto" "zh" "en")) lang "auto")))
 
 ;; ---------------------------------------------------------------- lifecycle
 

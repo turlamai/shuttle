@@ -20,7 +20,8 @@ struct TransferItem : TransferItemT<TransferItem> {
 
   void Apply(std::int32_t direction, winrt::hstring const& filename,
              std::int64_t size, std::int64_t progress, std::int32_t status,
-             winrt::hstring const& message, winrt::hstring const& stamp);
+             winrt::hstring const& message, winrt::hstring const& stamp,
+             winrt::hstring const& local_path);
 
   hstring Id() const { return id_; }
   hstring Filename() const { return filename_; }

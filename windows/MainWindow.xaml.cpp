@@ -6,6 +6,7 @@
 #include "GeneratedBackend.hpp"
 #include "update_handoff.hpp"
 #include "i18n.hpp"
+#include "i18n-language.h"
 
 #include <atomic>
 #include <cstdint>
@@ -109,22 +110,13 @@ void BindPickerToWindow(Picker const& picker, HWND window) {
 }
 
 // i18n strings are UTF-8 string_views from the embedded table; project
-// text APIs need UTF-16 hstrings. Language follows the system UI
-// language: the embedded table carries zh/en and the loader falls back
-// active -> other -> key. Chinese primary language ids map to zh;
-// everything else reads en.
-std::string const& ActiveI18nLanguage() {
-  static std::string const active = [] {
-    return PRIMARYLANGID(::GetUserDefaultUILanguage()) == 0x0004
-               ? std::string{"zh"}
-               : std::string{"en"};
-  }();
-  return active;
-}
-
+// text APIs need UTF-16 hstrings. Language follows the shared
+// override (Settings) or the system UI language; the embedded table
+// carries zh/en and the loader falls back active -> other -> key.
 hstring tr_hstring(char const* key) {
   return winrt::to_hstring(
-      std::string(rivet_app::i18n::tr(ActiveI18nLanguage().c_str(), key)));
+      std::string(rivet_app::i18n::tr(rivet_app::i18n::ActiveLanguage().c_str(),
+                                      key)));
 }
 
 bool AutostartEnabled() {
@@ -304,14 +296,28 @@ void MainWindow::SetupLocalization() {
   drop_zone_ = DropZone();
   target_box_ = TargetBox();
 
-  DropTitle().Text(tr_hstring("drop.title"));
+  DropTitle().Text(tr_hstring("drop.title.empty"));
   DropSubtitle().Text(tr_hstring("drop.subtitle"));
+  UpdateDropTitle();
   TransfersTitle().Text(tr_hstring("transfers.title"));
   EmptyState().Text(tr_hstring("transfers.empty"));
   ClearHistoryButton().Content(box_value(tr_hstring("transfers.clear")));
 
   auto const rows = single_threaded_observable_vector<winrt::RivetHost::TransferItem>();
   transfers_list_.ItemsSource(rows);
+  // A completed received row opens its containing folder.
+  transfers_list_.ItemClick(
+      [weak = get_weak](auto const&, Controls::ItemClickEventArgs const& args) {
+        if (auto item = args.ClickedItem().try_as<winrt::RivetHost::TransferItem>()) {
+          if (item.OpenFolderVisibility() == Visibility::Visible) {
+            auto const parent = std::filesystem::path{
+                std::wstring{item.LocalPath()}}.parent_path();
+            (void)Windows::System::Launcher::LaunchFolderAsync(
+                Windows::Storage::StorageFolder::GetFolderFromPathAsync(parent)
+                    .get());
+          }
+        }
+      });
   UpdateEmptyState();
 
   ClearHistoryButton().Click([weak = get_weak()](auto const&, auto const&) {
@@ -338,6 +344,12 @@ void MainWindow::SetupLocalization() {
   SettingsButton().Click([weak = get_weak()](auto const&, auto const&) {
     if (auto window = weak.get()) {
       window->ShowSettingsDialog();
+    }
+  });
+
+  TargetBox().TextChanged([weak = get_weak()](auto const&, auto const&) {
+    if (auto window = weak.get()) {
+      window->UpdateDropTitle();
     }
   });
 
@@ -531,6 +543,12 @@ winrt::fire_and_forget MainWindow::InitializeBackendAsync() {
                     }
                   } catch (...) {
                   }
+                  window->saved_leaf_ =
+                      std::filesystem::path{
+                          std::wstring{winrt::to_hstring(
+                              settings.download_dir)}}
+                          .filename()
+                          .c_str();
                   if (!settings.target.empty()) {
                     window->target_box_.Text(
                         hstring{winrt::to_hstring(settings.target)});
@@ -802,6 +820,32 @@ void MainWindow::OpenReleasesPage() {
   }
 }
 
+void MainWindow::ApplyLanguageRefresh() {
+  // Re-render every static text after the language override changes.
+  DropTitle().Text(hstring(tr_hstring(target_box_.Text().empty()
+                                          ? "drop.title.empty"
+                                          : "drop.title.ready")));
+  DropSubtitle().Text(tr_hstring("drop.subtitle"));
+  TransfersTitle().Text(tr_hstring("transfers.title"));
+  EmptyState().Text(tr_hstring("transfers.empty"));
+  ClearHistoryButton().Content(box_value(tr_hstring("transfers.clear")));
+  UpdateDropTitle();
+}
+
+void MainWindow::UpdateDropTitle() {
+  // The drop zone states the action with the current recipient inline:
+  // no target -> prompt for it; target set -> name it in the title.
+  auto const target = target_box_.Text();
+  if (target.empty()) {
+    DropTitle().Text(tr_hstring("drop.title.empty"));
+    DropSubtitle().Text(tr_hstring("drop.subtitle"));
+  } else {
+    DropTitle().Text(hstring{
+        std::wstring{tr_hstring("drop.title.ready")} + L" " + target});
+    DropSubtitle().Text(tr_hstring("drop.subtitle"));
+  }
+}
+
 void MainWindow::ApplyRelayHealth(bool ok, std::wstring const& message) {
   HealthDot().Fill(HealthBrush(ok));
   HealthText().Text(hstring(message));
@@ -821,7 +865,8 @@ void MainWindow::UpsertTransfer(rivet_app::Transfer const& transfer) {
     auto self = winrt::get_self<TransferItem>(projected);
     self->Id(hstring{id});
     self->Apply(direction, filename, transfer.size, transfer.progress, status,
-                message, stamp);
+                message, stamp,
+                hstring{winrt::to_hstring(transfer.local_path)});
     items_.emplace(id, projected);
     auto const rows =
         transfers_list_.ItemsSource()
@@ -832,12 +877,15 @@ void MainWindow::UpsertTransfer(rivet_app::Transfer const& transfer) {
         transfer.status == rivet_app::TransferStatus::received &&
         tray_ != nullptr) {
       tray_->Notify(std::wstring{tr_hstring("notify.received-title")},
-                    std::wstring{winrt::to_hstring(transfer.filename)});
+                    std::wstring{winrt::to_hstring(transfer.filename)} + L"
+" +
+                        saved_leaf_);
     }
   } else {
     auto self = winrt::get_self<TransferItem>(existing->second);
     self->Apply(direction, filename, transfer.size, transfer.progress, status,
-                message, stamp);
+                message, stamp,
+                hstring{winrt::to_hstring(transfer.local_path)});
   }
   UpdateEmptyState();
 }
@@ -906,6 +954,7 @@ void MainWindow::ShowSettingsDialog() {
   TextBox relay_box;
   TextBox download_box;
   TextBox identity_box;
+  ComboBox language_box;
   ToggleSwitch autostart_toggle;
   Button relay_browse;
   Button download_browse;
@@ -914,6 +963,14 @@ void MainWindow::ShowSettingsDialog() {
   download_box.Text(hstring{winrt::to_hstring(settings.download_dir)});
   identity_box.Text(hstring{winrt::to_hstring(settings.identity)});
   identity_box.PlaceholderText(hstring{winrt::to_hstring(settings.machine)});
+  // interface language: index 0 = auto, 1 = zh, 2 = en
+  language_box.Items().Append(
+      box_value(hstring{tr_hstring("settings.language-auto")}));
+  language_box.Items().Append(box_value(hstring(L"中文")));
+  language_box.Items().Append(box_value(hstring(L"English")));
+  language_box.SelectedIndex(settings.ui_language == "zh"
+                                 ? 1
+                                 : (settings.ui_language == "en" ? 2 : 0));
   autostart_toggle.OnContent(box_value(hstring(L"")));
   autostart_toggle.OffContent(box_value(hstring(L"")));
   autostart_toggle.IsOn(AutostartEnabled());
@@ -972,10 +1029,16 @@ void MainWindow::ShowSettingsDialog() {
     caption.Text(tr_hstring("settings.identity-label"));
     caption.FontSize(12);
     caption.Opacity(0.75);
+    auto hint = TextBlock();
+    hint.Text(tr_hstring("settings.identity-hint"));
+    hint.FontSize(11);
+    hint.Opacity(0.55);
+    hint.TextWrapping(TextWrapping::Wrap);
     auto stack = StackPanel();
     stack.Spacing(6);
     stack.Children().Append(caption);
     stack.Children().Append(identity_box);
+    stack.Children().Append(hint);
     content.Children().Append(stack);
   }
 
@@ -1030,12 +1093,22 @@ void MainWindow::ShowSettingsDialog() {
       auto window = weak.get();
       if (!window) return;
       rivet_app::API api(*backend);
+      auto const lang_choice =
+          language_box.SelectedIndex() == 1
+              ? std::string{"zh"}
+              : (language_box.SelectedIndex() == 2 ? std::string{"en"}
+                                                   : std::string{"auto"});
+      rivet_app::i18n::SetOverrideLanguage(lang_choice == "auto"
+                                               ? std::string{}
+                                               : lang_choice);
       (void)api
           .set_settings(winrt::to_string(relay_box.Text()),
                         winrt::to_string(download_box.Text()),
                         winrt::to_string(identity_box.Text()),
-                        winrt::to_string(std::wstring{window->TargetBox().Text()}))
+                        winrt::to_string(std::wstring{window->TargetBox().Text()}),
+                        lang_choice)
           .get();
+      window->ApplyLanguageRefresh();
     } catch (std::exception const& e) {
       if (auto window = weak.get()) {
         window->DispatcherQueue().TryEnqueue(

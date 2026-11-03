@@ -49,6 +49,11 @@
                             Maximum="100"
                             Visibility="{x:Bind ProgressVisibility, Mode=OneWay}"
                             Height="3" CornerRadius="1.5"/>
+                        <TextBlock
+                            Text="打开所在文件夹"
+                            FontSize="11"
+                            Foreground="{ThemeResource SystemAccentColorLight1}"
+                            Visibility="{x:Bind OpenFolderVisibility, Mode=OneWay}"/>
                     </StackPanel>
 
                     <StackPanel
@@ -112,7 +117,7 @@
                     x:Name="TargetBox"
                     Grid.Column="1"
                     IsEditable="True"
-                    PlaceholderText="对方电脑名（如 OFFICE-PC）"
+                    PlaceholderText="对方的电脑名（在对方 Shuttle 标题栏可见）"
                     MinHeight="32"/>
             </Grid>
 
@@ -157,7 +162,8 @@
                     x:Name="TransfersList"
                     ItemTemplate="{StaticResource TransferTemplate}"
                     SelectionMode="None"
-                    IsItemClickEnabled="False"/>
+                    IsItemClickEnabled="True"
+                    ItemClick="TransfersList_ItemClick"/>
                 <TextBlock
                     x:Name="EmptyState"
                     FontSize="13" Opacity="0.45"
