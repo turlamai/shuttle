@@ -310,8 +310,11 @@ void MainWindow::SetupLocalization() {
       [weak = get_weak()](auto const&, Controls::ItemClickEventArgs const& args) {
         if (auto item = args.ClickedItem().try_as<winrt::RivetHost::TransferItem>()) {
           if (item.OpenFolderVisibility() == Visibility::Visible) {
-            auto const parent = std::filesystem::path{
-                std::wstring{item.LocalPath()}}.parent_path();
+            auto const parent =
+                std::filesystem::path{
+                    std::wstring{item.LocalPath()}}
+                    .parent_path()
+                    .wstring();
             (void)Windows::System::Launcher::LaunchFolderAsync(
                 Windows::Storage::StorageFolder::GetFolderFromPathAsync(parent)
                     .get());
