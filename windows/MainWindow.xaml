@@ -163,7 +163,7 @@
                     ItemTemplate="{StaticResource TransferTemplate}"
                     SelectionMode="None"
                     IsItemClickEnabled="True"
-                    ItemClick="TransfersList_ItemClick"/>
+                    IsItemClickEnabled="True"/>
                 <TextBlock
                     x:Name="EmptyState"
                     FontSize="13" Opacity="0.45"
