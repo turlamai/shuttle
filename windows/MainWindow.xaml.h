@@ -41,9 +41,12 @@ struct MainWindow : MainWindowT<MainWindow> {
   void PollTransfers();
   void UpdateDropTitle();
   void ApplyLanguageRefresh();
+ public:
   void TransfersList_ItemClick(
       winrt::Windows::Foundation::IInspectable const& sender,
       winrt::Microsoft::UI::Xaml::Controls::ItemClickEventArgs const& args);
+
+ private:
   void SetUpdateTimer(
       winrt::Microsoft::UI::Xaml::DispatcherTimer timer);
   void StartUpdateTimer();
