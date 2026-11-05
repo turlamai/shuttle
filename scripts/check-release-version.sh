@@ -39,4 +39,12 @@ GENERATED_VERSION="$(grep -oE 'kVersion\[\] = "[^"]*"' "$ROOT/windows/GeneratedB
 # The backend's update/identity constant joins the version contract.
 grep -qF "(define app-version \"$VERSION\")" "$ROOT/app/backend.rkt" ||   fail "app/backend.rkt app-version does not match tag '$TAG'"
 
+# The updater identity must equal rivet.rktd's identifier: signed update
+# manifests carry that application_id and select-update rejects any
+# mismatch, silently degrading in-app updates to the releases page.
+RIVET_RKTD_IDENTIFIER="$(grep -oE '\(identifier \.[[:space:]]*"[^"]+"' "$ROOT/rivet.rktd" | grep -oE '"[^"]*"' | tr -d '"')"
+[[ -n "$RIVET_RKTD_IDENTIFIER" ]] || fail "rivet.rktd has no identifier"
+grep -qF "(define update-application-id \"$RIVET_RKTD_IDENTIFIER\")" "$ROOT/app/backend.rkt" || \
+  fail "app/backend.rkt update-application-id does not match rivet.rktd identifier '$RIVET_RKTD_IDENTIFIER'"
+
 echo "release preflight: $TAG ok"

@@ -69,11 +69,19 @@
 ;; release preflight (scripts/check-release-version.sh) asserts all four.
 (define app-version "1.2.0")
 
-;; Ed25519 public key (raw 32 bytes, base64) that signed update
-;; manifests must verify against. Private half lives in the
+;; The updater identity must equal rivet.rktd's `identifier` — the value
+;; the signed manifest carries as application_id. select-update rejects
+;; every manifest on a mismatch and the UI falls back to the releases
+;; page, so the release preflight asserts this pair too.
+(define update-application-id "dev.rivet.shuttle")
+
+;; Ed25519 public key (DER SubjectPublicKeyInfo, base64) that signed
+;; update manifests must verify against. bytes->ed25519-public-key
+;; parses DER only — a raw 32-byte key fails at make-updater and every
+;; check degrades to the releases page. Private half lives in the
 ;; UPDATE_ED25519_PRIVATE_KEY repository secret; never in the tree.
 (define update-public-key-b64
-  "CWCPzI5yKUswE4CwLKCm8Bi8pEHtNCAYlQEs+xh5/jI=")
+  "MCowBQYDK2VwAyEACWCPzI5yKUswE4CwLKCm8Bi8pEHtNCAYlQEs+xh5/jI=")
 (define update-key-id "update-2026-10")
 (define update-manifest-url
   "https://github.com/turlamai/shuttle/releases/latest/download/update-stable.json")
@@ -753,7 +761,7 @@
       (error 'shuttle "updates require the MSI installation"))
     (updater-instance
      (make-updater
-      #:application-id "shuttle"
+      #:application-id update-application-id
       #:current-version app-version
       #:channel 'stable
       #:platform 'windows

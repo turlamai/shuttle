@@ -808,8 +808,11 @@ void MainWindow::InstallVerifiedUpdate() {
   try {
     rivet_app::API api(*backend);
     auto const msi = api.verified_msi().get();
+    // Same identity constant as the backend updater (rivet.rktd's
+    // identifier); the handoff uses it only for its temp-file root.
     rivet::update::MsiHandoff::LaunchVerifiedInstaller(
-        L"shuttle", std::filesystem::path{winrt::to_hstring(msi).c_str()},
+        L"dev.rivet.shuttle",
+        std::filesystem::path{winrt::to_hstring(msi).c_str()},
         executable_path().wstring());
   } catch (std::exception const& e) {
     ShowError(winrt::to_hstring(e.what()));
