@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.2.1]
+
+### Fixed
+
+- **In-app updates actually engage now**: two faults broke every update
+  check — the updater presented an identity that signed manifests don't
+  carry, and the update public key was embedded in the wrong format — so
+  Shuttle always fell back to opening the releases page instead of
+  updating in place. Checking for updates now downloads the signed MSI,
+  verifies it against the manifest, and installs it.
+  **Note:** copies at 1.2.0 or older carry the broken updater, so
+  reaching 1.2.1 is the one last manual install; from here on, updates
+  arrive in-app.
+- **Settings paths are selectable**: the relay/download `…` buttons open
+  a real folder picker (they were dead buttons before), and the
+  interface language selector — shipped invisible in 1.2.0 — is now
+  shown in Settings.
+
 ## [1.2.0]
 
 ### Added
