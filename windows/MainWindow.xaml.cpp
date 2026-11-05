@@ -13,6 +13,7 @@
 #include <stdexcept>
 
 #include <winrt/Microsoft.UI.Windowing.h>
+#include <winrt/Microsoft.UI.Xaml.Automation.h>
 #include <winrt/Windows.ApplicationModel.DataTransfer.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Storage.Pickers.h>
@@ -981,6 +982,33 @@ void MainWindow::ShowSettingsDialog() {
   relay_browse.Content(box_value(hstring(L"…")));
   download_browse.Content(box_value(hstring(L"…")));
 
+  // The settings browse buttons open folder pickers, activation-based like
+  // the send-files picker, so the same HWND binding applies. A picked
+  // folder only updates the box; it takes effect through the dialog's
+  // normal Save path.
+  auto wire_folder_browse = [weak](Button button, TextBox box,
+                                   char const* automation_key) {
+    winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(
+        button, tr_hstring(automation_key));
+    button.Click([weak, box](auto const&, auto const&) ->
+                 winrt::fire_and_forget {
+      try {
+        auto window = weak.get();
+        if (window == nullptr) co_return;
+        FolderPicker picker;
+        picker.ViewMode(PickerViewMode::List);
+        BindPickerToWindow(picker, window->WindowHandle());
+        auto const folder = co_await picker.PickSingleFolderAsync();
+        if (folder != nullptr) {
+          box.Text(folder.Path());
+        }
+      } catch (...) {
+      }
+    });
+  };
+  wire_folder_browse(relay_browse, relay_box, "browse.relay-dir");
+  wire_folder_browse(download_browse, download_box, "browse.download-dir");
+
   auto make_row = [](hstring const& label, TextBox const& box,
                      Button const& browse) {
     auto caption = TextBlock();
@@ -1042,6 +1070,18 @@ void MainWindow::ShowSettingsDialog() {
     stack.Children().Append(caption);
     stack.Children().Append(identity_box);
     stack.Children().Append(hint);
+    content.Children().Append(stack);
+  }
+
+  {
+    auto caption = TextBlock();
+    caption.Text(tr_hstring("settings.language-label"));
+    caption.FontSize(12);
+    caption.Opacity(0.75);
+    auto stack = StackPanel();
+    stack.Spacing(6);
+    stack.Children().Append(caption);
+    stack.Children().Append(language_box);
     content.Children().Append(stack);
   }
 
