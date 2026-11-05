@@ -306,19 +306,6 @@ void MainWindow::SetupLocalization() {
 
   auto const rows = single_threaded_observable_vector<winrt::RivetHost::TransferItem>();
   transfers_list_.ItemsSource(rows);
-  // A completed received row opens its containing folder.
-  transfers_list_.ItemClick(
-      [weak = get_weak()](auto const&, ItemClickEventArgs const& args) {
-        if (auto item = args.ClickedItem().try_as<winrt::RivetHost::TransferItem>()) {
-          if (item.OpenFolderVisibility() == Visibility::Visible) {
-            auto const parent = std::filesystem::path{
-                std::wstring{item.LocalPath()}}.parent_path();
-            (void)Windows::System::Launcher::LaunchFolderAsync(
-                Windows::Storage::StorageFolder::GetFolderFromPathAsync(winrt::hstring{parent.wstring()})
-                    .get());
-          }
-        }
-      });
   UpdateEmptyState();
 
   ClearHistoryButton().Click([weak = get_weak()](auto const&, auto const&) {
@@ -854,6 +841,23 @@ void MainWindow::UpdateDropTitle() {
   }
 }
 
+// Bound from the XAML ItemClick attribute: clicking a completed
+// received row opens its containing folder.
+void MainWindow::TransfersList_ItemClick(
+    winrt::Windows::Foundation::IInspectable const&,
+    Controls::ItemClickEventArgs const& args) {
+  auto item = args.ClickedItem().try_as<winrt::RivetHost::TransferItem>();
+  if (item == nullptr) return;
+  if (item.OpenFolderVisibility() != Visibility::Visible) return;
+
+  auto const parent =
+      std::filesystem::path{std::wstring{item.LocalPath()}}
+          .parent_path()
+          .wstring();
+  (void)Windows::System::Launcher::LaunchFolderAsync(
+      Windows::Storage::StorageFolder::GetFolderFromPathAsync(parent).get());
+}
+
 void MainWindow::ApplyRelayHealth(bool ok, std::wstring const& message) {
   HealthDot().Fill(HealthBrush(ok));
   HealthText().Text(hstring(message));
@@ -884,9 +888,10 @@ void MainWindow::UpsertTransfer(rivet_app::Transfer const& transfer) {
     if (transfer.direction == rivet_app::Direction::receive &&
         transfer.status == rivet_app::TransferStatus::received &&
         tray_ != nullptr) {
-      tray_->Notify(std::wstring{tr_hstring("notify.received-title")},
-                    std::wstring{winrt::to_hstring(transfer.filename)} + L"\n" +
-                        saved_leaf_);
+      tray_->Notify(
+          std::wstring{tr_hstring("notify.received-title")},
+          std::wstring{winrt::to_hstring(transfer.filename)} + L"\n" +
+              saved_leaf_);
     }
   } else {
     auto self = winrt::get_self<TransferItem>(existing->second);
