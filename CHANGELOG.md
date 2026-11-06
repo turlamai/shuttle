@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.2.2]
+
+### Fixed
+
+- **Dragging a folder no longer reports "文件夹不存在"**: a live
+  directory failed the sender's file-only existence check and surfaced
+  as a missing-file error for a folder that was right there. Folder
+  drops are now intercepted up front with a clear "暂不支持发送文件夹"
+  message (compress to zip first), and the sender names that remedy
+  instead of claiming the path is missing.
+
+### Note
+
+- Copies at 1.2.1 can update to this release in-app. Copies at 1.2.0 or
+  older still carry the broken updater and need this one manual
+  install; every later update arrives in-app.
+
 ## [1.2.1]
 
 ### Fixed
