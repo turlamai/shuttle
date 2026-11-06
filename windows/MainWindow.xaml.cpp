@@ -922,7 +922,18 @@ winrt::fire_and_forget MainWindow::SendPathsAsync(
   auto const weak = get_weak();
   co_await winrt::resume_background();
   std::vector<hstring> failures;
+  std::size_t folders = 0;
   for (auto const& path : paths) {
+    // Explorer drops include folders. The mailbox protocol transfers
+    // one file per item; a folder can only die deep inside the backend
+    // with a misleading "file not found", so intercept it here with the
+    // user-facing remedy instead.
+    std::error_code ec;
+    if (std::filesystem::is_directory(
+            std::filesystem::path{path.c_str()}, ec)) {
+      ++folders;
+      continue;
+    }
     try {
       rivet_app::API api(*backend);
       (void)api.send_file(winrt::to_string(path), target).get();
@@ -932,9 +943,15 @@ winrt::fire_and_forget MainWindow::SendPathsAsync(
   }
   if (auto window = weak.get()) {
     window->DispatcherQueue().TryEnqueue(
-        [weak, failures = std::move(failures)] {
-          if (auto current = weak.get(); !failures.empty()) {
-            hstring message = tr_hstring("error.send") + L"\n" + failures.front();
+        [weak, failures = std::move(failures), folders] {
+          if (auto current = weak.get(); !failures.empty() || folders > 0) {
+            hstring message = tr_hstring("error.send");
+            if (!failures.empty()) {
+              message = message + L"\n" + failures.front();
+            }
+            if (folders > 0) {
+              message = message + L"\n" + tr_hstring("error.send-folder");
+            }
             current->ShowError(message);
           }
         });

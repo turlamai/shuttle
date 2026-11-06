@@ -516,8 +516,13 @@
                    (lambda (e)
                      (send-log! "send FAILED" (exn-message e))
                      (fail! (format "发送失败：~a" (exn-message e))))])
-    (unless (file-exists? src)
-      (error 'shuttle "源文件不存在：~a" local-path))
+    ;; A live directory passes neither check below — file-exists? is
+    ;; #f for it, which used to surface as a misleading "源文件不存在".
+    (cond
+      [(directory-exists? src)
+       (error 'shuttle "暂不支持发送文件夹：~a（请先压缩为 zip）" local-path)]
+      [(not (file-exists? src))
+       (error 'shuttle "源文件不存在：~a" local-path)])
     (send-log! "relay mkdir")
     (make-directory* relay)
     (define folder (build-path relay (mailbox-folder-name (folder-stamp) id)))
@@ -1042,6 +1047,30 @@
                                       'to (my-identity)))))
     (parameterize ([this-machine "SELFTEST-PEER"])
       (do-send! test-id (path->string src)))
+
+    ;; 1b. a directory source must fail naming the zip remedy — a live
+    ;; directory is file-exists? #f and used to surface as "不存在".
+    (define dir-src (make-temporary-file "shuttle-srcdir~a" 'directory))
+    (define dir-id (new-transfer-id))
+    (make-entry! dir-id 'send "selftest 目录" 0 'queued "测试" (display-stamp))
+    (call-with-semaphore state-lock
+      (lambda ()
+        (hash-set! transfers-table
+                   dir-id (hash-set* (hash-ref transfers-table dir-id)
+                                     'to (my-identity)))))
+    (parameterize ([this-machine "SELFTEST-PEER"])
+      (with-handlers ([exn:fail? void])
+        (do-send! dir-id (path->string dir-src))))
+    (define dir-entry (hash-ref transfers-table dir-id))
+    (check-equal? (hash-ref dir-entry 'status) 'failed
+                  "a folder source must fail, not send")
+    (check-true (string-contains? (hash-ref dir-entry 'message "") "文件夹")
+                "failure must name the folder remedy, not claim missing")
+    (check-false
+     (for/first ([f (in-list (relay-folders relay))]
+                 #:when (equal? (hash-ref (read-manifest f) 'id #f) dir-id))
+       f)
+     "a failed folder send must leave no mailbox folder behind")
 
     ;; 2. the mailbox must now hold one folder with payload + markers
     (define ours
