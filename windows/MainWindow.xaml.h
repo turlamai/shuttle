@@ -52,11 +52,15 @@ struct MainWindow : MainWindowT<MainWindow> {
   void StartUpdateTimer();
   void StopUpdateTimer();
   void RunUpdateFlow(winrt::Microsoft::UI::Xaml::Controls::Button update_button,
-                     winrt::Microsoft::UI::Xaml::Controls::TextBlock update_status);
+                     winrt::Microsoft::UI::Xaml::Controls::TextBlock update_status,
+                     winrt::Microsoft::UI::Xaml::Controls::Button update_cancel);
   void PollUpdatePhase(winrt::Microsoft::UI::Xaml::Controls::Button update_button,
-                       winrt::Microsoft::UI::Xaml::Controls::TextBlock update_status);
+                       winrt::Microsoft::UI::Xaml::Controls::TextBlock update_status,
+                       winrt::Microsoft::UI::Xaml::Controls::Button update_cancel);
   void InstallVerifiedUpdate();
   void OpenReleasesPage();
+  winrt::fire_and_forget StartSilentUpdateCheck();
+  void ShowUpdateOfferDialog(winrt::hstring const& version);
   void ApplyRelayHealth(bool ok, std::wstring const& message);
   void UpsertTransfer(rivet_app::Transfer const& transfer);
   void UpdateEmptyState();
@@ -77,6 +81,9 @@ struct MainWindow : MainWindowT<MainWindow> {
   winrt::Microsoft::UI::Xaml::Controls::Border drop_zone_{nullptr};
   winrt::Microsoft::UI::Xaml::Controls::ComboBox target_box_{nullptr};
   winrt::Microsoft::UI::Xaml::Controls::ContentDialog settings_dialog_{nullptr};
+  // The silent-check offer dialog; null while no offer is on screen so a
+  // background check never stacks a second one over the settings dialog.
+  winrt::Microsoft::UI::Xaml::Controls::ContentDialog update_offer_dialog_{nullptr};
 
   // Background threads cannot emit Rivet events (the emitter lives on
   // the RPC thread), so the list is refreshed by polling instead.
@@ -87,6 +94,12 @@ struct MainWindow : MainWindowT<MainWindow> {
   // Update state machine: once a verified artifact is on disk the
   // button turns into "install and restart".
   bool update_install_armed_ = false;
+  // The silent-check offer dialog owns its own poll timer and the same
+  // offer → download → armed walk as the settings row; state lives here
+  // because the dialog outlives ShowUpdateOfferDialog's stack frame.
+  winrt::Microsoft::UI::Xaml::DispatcherTimer update_offer_timer_{nullptr};
+  bool update_offer_downloading_ = false;
+  bool update_offer_armed_ = false;
   // Leaf name of the download directory, shown in receive toasts.
   std::wstring saved_leaf_ = L"Shuttle";
   // Language picked in the settings dialog, applied on save.

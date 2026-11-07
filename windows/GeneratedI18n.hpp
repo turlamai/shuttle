@@ -16,7 +16,7 @@ struct I18nEntry {
   std::string_view en;
 };
 
-inline constexpr std::array<I18nEntry, 52> kI18nTable{{
+inline constexpr std::array<I18nEntry, 57> kI18nTable{{
     {"app.name", "Shuttle", "Shuttle"},
     {"browse.download-dir", "\351\200\211\346\213\251\344\270\213\350\275\275\347\233\256\345\275\225", "Choose download directory"},
     {"browse.pick-files", "\351\200\211\346\213\251\350\246\201\345\217\221\351\200\201\347\232\204\346\226\207\344\273\266", "Choose files to send"},
@@ -57,12 +57,17 @@ inline constexpr std::array<I18nEntry, 52> kI18nTable{{
     {"tray.exit", "\351\200\200\345\207\272", "Exit"},
     {"tray.open", "\346\211\223\345\274\200 Shuttle", "Open Shuttle"},
     {"tray.tooltip", "Shuttle \342\200\224 \346\226\207\344\273\266\347\233\264\350\276\276\345\217\246\344\270\200\345\217\260\347\224\265\350\204\221", "Shuttle \342\200\224 files straight to the other PC"},
+    {"update.auto-check", "\350\207\252\345\212\250\346\243\200\346\237\245\346\233\264\346\226\260", "Automatically check for updates"},
+    {"update.available-body", "\346\234\211\346\226\260\347\211\210\346\234\254\345\217\257\347\224\250\357\274\214\350\246\201\347\253\213\345\215\263\344\270\213\350\275\275\345\271\266\345\256\211\350\243\205\345\220\227\357\274\237", "A new version is available. Download and install it now?"},
+    {"update.available-title", "\345\217\221\347\216\260\346\226\260\347\211\210\346\234\254", "Update available"},
+    {"update.cancel-download", "\345\217\226\346\266\210\344\270\213\350\275\275", "Cancel download"},
     {"update.check", "\346\243\200\346\237\245\346\233\264\346\226\260", "Check for updates"},
     {"update.checking", "\346\255\243\345\234\250\346\243\200\346\237\245\346\233\264\346\226\260\342\200\246", "Checking for updates\342\200\246"},
     {"update.downloaded", "\346\233\264\346\226\260\345\267\262\344\270\213\350\275\275\357\274\214\351\232\217\346\227\266\345\217\257\345\256\211\350\243\205", "Update downloaded and ready to install"},
     {"update.downloading", "\346\255\243\345\234\250\344\270\213\350\275\275\346\233\264\346\226\260\342\200\246", "Downloading update\342\200\246"},
     {"update.idle", "\346\233\264\346\226\260", "Updates"},
     {"update.install", "\345\256\211\350\243\205\345\271\266\351\207\215\345\220\257", "Install and restart"},
+    {"update.install-now", "\347\253\213\345\215\263\346\233\264\346\226\260", "Update now"},
     {"update.openreleases", "\345\267\262\346\211\223\345\274\200 Releases \351\241\265\351\235\242\357\274\214\350\257\267\344\270\213\350\275\275\346\234\200\346\226\260 MSI \345\256\211\350\243\205", "Opened the Releases page \342\200\224 grab the latest MSI there"},
     {"update.progress", "\344\270\213\350\275\275\344\270\255", "Downloading"},
     {"update.ready", "\345\267\262\345\260\261\347\273\252", "Ready"},

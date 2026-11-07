@@ -802,6 +802,29 @@
     (updater-cancel! (updater-instance)))
   #t)
 
+;; ---- silent-check preferences (the Taskly UPDATE.md family pattern) ----
+;; The 4-hour silent-check throttle and the auto-check toggle are
+;; host-owned behavior: the host reads these keys, decides whether a
+;; silent check is due, and stamps the timestamp BEFORE checking so a
+;; failing check cannot hammer the feed.
+
+(define-rpc (get-auto-check-updates : Bool)
+  ;; Absent key = on: the toggle only exists to silence the check.
+  (not (eq? (hash-ref (config) 'auto-check-updates #t) #f)))
+
+(define-rpc (set-auto-check-updates [on : Bool] : Bool)
+  (config (hash-set* (config) 'auto-check-updates on))
+  (write-config! (config))
+  on)
+
+(define-rpc (get-last-update-check : Int64)
+  (hash-ref (config) 'last-update-check 0))
+
+(define-rpc (touch-last-update-check : Void)
+  (config (hash-set* (config) 'last-update-check (current-seconds)))
+  (write-config! (config))
+  (void))
+
 (define (updater-snapshot)
   (if (updater-instance)
       (updater-state (updater-instance))
