@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.2.3]
+
+### Added
+
+- **In-app updates, hands-free**: Shuttle now checks for updates in the
+  background (at most once per 4 hours; a switch in Settings turns the
+  silent check off), and a newer version offers to download and install
+  itself in one click — with live progress, a cancellable download, and
+  the verified offer kept for retry. No more watching the Releases page.
+- **Portable installs update in place**: the zip flavor now participates
+  in online updates — the verified archive swaps the install directory
+  automatically (with a fallback copy kept until the new version
+  launches), matching the MSI path.
+- **Install failures report back**: a failed update attempt surfaces on
+  the next launch with the underlying reason instead of vanishing, and
+  every error bar carries a 复制错误 button that puts the verbatim
+  message on the clipboard for bug reports.
+
+### Changed
+
+- Releases now ship with update-chain evidence — signed-feed rejection,
+  the download lifecycle with data preservation, and install-flavor
+  artifact selection — run by the release pipeline on the exact
+  published tree (see docs/UPDATE.md).
+
 ## [1.2.2]
 
 ### Fixed
