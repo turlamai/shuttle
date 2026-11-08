@@ -16,7 +16,7 @@ struct I18nEntry {
   std::string_view en;
 };
 
-inline constexpr std::array<I18nEntry, 57> kI18nTable{{
+inline constexpr std::array<I18nEntry, 60> kI18nTable{{
     {"app.name", "Shuttle", "Shuttle"},
     {"browse.download-dir", "\351\200\211\346\213\251\344\270\213\350\275\275\347\233\256\345\275\225", "Choose download directory"},
     {"browse.pick-files", "\351\200\211\346\213\251\350\246\201\345\217\221\351\200\201\347\232\204\346\226\207\344\273\266", "Choose files to send"},
@@ -27,6 +27,7 @@ inline constexpr std::array<I18nEntry, 57> kI18nTable{{
     {"drop.title.empty", "\345\205\210\345\241\253\345\206\231\345\257\271\346\226\271\347\232\204\347\224\265\350\204\221\345\220\215", "Fill in the recipient's machine name first"},
     {"drop.title.ready", "\346\213\226\346\224\276\346\226\207\344\273\266\345\215\263\345\217\257\345\217\221\351\200\201", "Drop files to send"},
     {"error.backend-not-ready", "\345\220\216\347\253\257\346\234\252\345\260\261\347\273\252\357\274\214\350\257\267\347\250\215\345\200\231", "Backend is not ready yet"},
+    {"error.copy", "\345\244\215\345\210\266\351\224\231\350\257\257", "Copy error"},
     {"error.send", "\345\217\221\351\200\201\345\244\261\350\264\245", "Send failed"},
     {"error.send-folder", "\346\232\202\344\270\215\346\224\257\346\214\201\345\217\221\351\200\201\346\226\207\344\273\266\345\244\271", "Sending folders is not supported yet"},
     {"error.settings-save", "\344\277\235\345\255\230\350\256\276\347\275\256\345\244\261\350\264\245", "Failed to save settings"},
@@ -63,10 +64,12 @@ inline constexpr std::array<I18nEntry, 57> kI18nTable{{
     {"update.cancel-download", "\345\217\226\346\266\210\344\270\213\350\275\275", "Cancel download"},
     {"update.check", "\346\243\200\346\237\245\346\233\264\346\226\260", "Check for updates"},
     {"update.checking", "\346\255\243\345\234\250\346\243\200\346\237\245\346\233\264\346\226\260\342\200\246", "Checking for updates\342\200\246"},
+    {"update.dev-copy", "\345\274\200\345\217\221\346\236\204\345\273\272\344\270\215\345\217\202\344\270\216\345\234\250\347\272\277\346\233\264\346\226\260", "Dev builds do not participate in online updates"},
     {"update.downloaded", "\346\233\264\346\226\260\345\267\262\344\270\213\350\275\275\357\274\214\351\232\217\346\227\266\345\217\257\345\256\211\350\243\205", "Update downloaded and ready to install"},
     {"update.downloading", "\346\255\243\345\234\250\344\270\213\350\275\275\346\233\264\346\226\260\342\200\246", "Downloading update\342\200\246"},
     {"update.idle", "\346\233\264\346\226\260", "Updates"},
     {"update.install", "\345\256\211\350\243\205\345\271\266\351\207\215\345\220\257", "Install and restart"},
+    {"update.install-failed", "\346\233\264\346\226\260\345\256\211\350\243\205\345\244\261\350\264\245\357\274\210\345\267\262\347\273\247\347\273\255\344\275\277\347\224\250\345\216\237\347\211\210\346\234\254\357\274\211", "The update failed to install (the previous version kept running)"},
     {"update.install-now", "\347\253\213\345\215\263\346\233\264\346\226\260", "Update now"},
     {"update.openreleases", "\345\267\262\346\211\223\345\274\200 Releases \351\241\265\351\235\242\357\274\214\350\257\267\344\270\213\350\275\275\346\234\200\346\226\260 MSI \345\256\211\350\243\205", "Opened the Releases page \342\200\224 grab the latest MSI there"},
     {"update.progress", "\344\270\213\350\275\275\344\270\255", "Downloading"},

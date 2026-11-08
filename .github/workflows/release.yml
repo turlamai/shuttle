@@ -49,6 +49,13 @@ jobs:
       - name: Version preflight (tag == rivet.rktd == generated client; annotated tag required)
         shell: bash
         run: bash scripts/check-release-version.sh "${{ github.ref_name }}"
+      # Release-kind acceptance (#release-update in rivet-acceptance.rktd):
+      # signed-feed rejection, the N→N+1 lifecycle, and data preservation
+      # must pass on the exact tree being published — bound here so a
+      # release cannot ship without its update evidence.
+      - name: Release update evidence
+        shell: pwsh
+        run: racket scripts/acceptance/release-update.rkt
       # The repository is public: releases/latest/download serves the
       # signed manifest anonymously, so in-app updates work end to end.
       - name: Release (unsigned MSI + portable zip + signed update manifest)

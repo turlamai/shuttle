@@ -37,14 +37,8 @@ using namespace winrt::Windows::Storage::Pickers;
 
 namespace DataTransfer = winrt::Windows::ApplicationModel::DataTransfer;
 
-namespace {
-
-constexpr wchar_t kAutostartKeyPath[] =
-    L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-constexpr wchar_t kAutostartEntry[] = L"Shuttle";
-constexpr UINT kTrayIconId = 1;
-constexpr UINT kTrayCallbackMessage = WM_APP + 0x5114;
-
+// Host helpers shared with MainWindow.Update.cpp (the taskly family
+// pattern): declared in MainWindow.xaml.h, defined here.
 std::filesystem::path executable_path() {
   std::wstring buffer(32768, L'\0');
   auto const length = ::GetModuleFileNameW(nullptr, buffer.data(),
@@ -55,6 +49,73 @@ std::filesystem::path executable_path() {
   buffer.resize(length);
   return std::filesystem::path(buffer);
 }
+
+// i18n strings are UTF-8 string_views from the embedded table; project
+// text APIs need UTF-16 hstrings. Language follows the shared
+// override (Settings) or the system UI language; the embedded table
+// carries zh/en and the loader falls back active -> other -> key.
+hstring tr_hstring(char const* key) {
+  return winrt::to_hstring(
+      std::string(rivet_app::i18n::tr(rivet_app::i18n::ActiveLanguage().c_str(),
+                                      key)));
+}
+
+// MSI-installed copies receive online updates via MsiHandoff; portable
+// copies update through the cmd swap handoff. The registry lookup tells
+// the shapes apart (docs/UPDATE.md).
+bool IsMsiInstall() {
+  // Per-machine MSIs land under HKLM (both views); per-user MSIs under
+  // HKCU. All three can carry a Shuttle entry.
+  const HKEY roots[] = {HKEY_LOCAL_MACHINE, HKEY_LOCAL_MACHINE,
+                        HKEY_CURRENT_USER};
+  const wchar_t* paths[] = {
+      L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+      L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+      L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
+  };
+  for (int i = 0; i < 3; ++i) {
+    HKEY key = nullptr;
+    if (::RegOpenKeyExW(roots[i], paths[i], 0, KEY_READ, &key) !=
+        ERROR_SUCCESS) {
+      continue;
+    }
+    for (DWORD i = 0;; ++i) {
+      wchar_t name[256];
+      DWORD len = 256;
+      if (::RegEnumKeyExW(key, i, name, &len, nullptr, nullptr, nullptr,
+                          nullptr) != ERROR_SUCCESS) {
+        break;
+      }
+      HKEY sub = nullptr;
+      if (::RegOpenKeyExW(key, name, 0, KEY_READ, &sub) != ERROR_SUCCESS) {
+        continue;
+      }
+      wchar_t display[256] = {};
+      DWORD type = 0;
+      DWORD bytes = sizeof(display);
+      bool hit =
+          ::RegQueryValueExW(sub, L"DisplayName", nullptr, &type,
+                             reinterpret_cast<BYTE*>(display), &bytes) ==
+              ERROR_SUCCESS &&
+          type == REG_SZ && ::wcscmp(display, L"Shuttle") == 0;
+      ::RegCloseKey(sub);
+      if (hit) {
+        ::RegCloseKey(key);
+        return true;
+      }
+    }
+    ::RegCloseKey(key);
+  }
+  return false;
+}
+
+namespace {
+
+constexpr wchar_t kAutostartKeyPath[] =
+    L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+constexpr wchar_t kAutostartEntry[] = L"Shuttle";
+constexpr UINT kTrayIconId = 1;
+constexpr UINT kTrayCallbackMessage = WM_APP + 0x5114;
 
 std::string utf8(std::filesystem::path const& path) {
   auto const wide = path.wstring();
@@ -114,11 +175,7 @@ void BindPickerToWindow(Picker const& picker, HWND window) {
 // text APIs need UTF-16 hstrings. Language follows the shared
 // override (Settings) or the system UI language; the embedded table
 // carries zh/en and the loader falls back active -> other -> key.
-hstring tr_hstring(char const* key) {
-  return winrt::to_hstring(
-      std::string(rivet_app::i18n::tr(rivet_app::i18n::ActiveLanguage().c_str(),
-                                      key)));
-}
+// (tr_hstring itself is defined at namespace scope above.)
 
 bool AutostartEnabled() {
   HKEY key = nullptr;
@@ -150,55 +207,6 @@ void SetAutostart(bool enable) {
     ::RegDeleteValueW(key, kAutostartEntry);
   }
   ::RegCloseKey(key);
-}
-
-// MSI-installed copies receive online updates (the updater downloads a
-// verified MSI and MsiHandoff runs it). Portable copies update by
-// re-downloading from the releases page.
-bool IsMsiInstall() {
-  // Per-machine MSIs land under HKLM (both views); per-user MSIs under
-  // HKCU. All three can carry a Shuttle entry.
-  const HKEY roots[] = {HKEY_LOCAL_MACHINE, HKEY_LOCAL_MACHINE,
-                        HKEY_CURRENT_USER};
-  const wchar_t* paths[] = {
-      L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
-      L"SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
-      L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
-  };
-  for (int i = 0; i < 3; ++i) {
-    HKEY key = nullptr;
-    if (::RegOpenKeyExW(roots[i], paths[i], 0, KEY_READ, &key) !=
-        ERROR_SUCCESS) {
-      continue;
-    }
-    for (DWORD i = 0;; ++i) {
-      wchar_t name[256];
-      DWORD len = 256;
-      if (::RegEnumKeyExW(key, i, name, &len, nullptr, nullptr, nullptr,
-                          nullptr) != ERROR_SUCCESS) {
-        break;
-      }
-      HKEY sub = nullptr;
-      if (::RegOpenKeyExW(key, name, 0, KEY_READ, &sub) != ERROR_SUCCESS) {
-        continue;
-      }
-      wchar_t display[256] = {};
-      DWORD type = 0;
-      DWORD bytes = sizeof(display);
-      bool hit =
-          ::RegQueryValueExW(sub, L"DisplayName", nullptr, &type,
-                             reinterpret_cast<BYTE*>(display), &bytes) ==
-              ERROR_SUCCESS &&
-          type == REG_SZ && ::wcscmp(display, L"Shuttle") == 0;
-      ::RegCloseKey(sub);
-      if (hit) {
-        ::RegCloseKey(key);
-        return true;
-      }
-    }
-    ::RegCloseKey(key);
-  }
-  return false;
 }
 
 Media::SolidColorBrush AccentBrush() {
@@ -563,6 +571,7 @@ winrt::fire_and_forget MainWindow::InitializeBackendAsync() {
                   } catch (...) {
                   }
                   window->SetupPolling();
+                  window->HandleInstallMarkers();
                   window->StartSilentUpdateCheck();
                 }
               });
@@ -595,6 +604,20 @@ void MainWindow::SetErrorUi(std::string const& message) {
 void MainWindow::ShowError(hstring const& message) {
   ErrorBar().Severity(InfoBarSeverity::Error);
   ErrorBar().Message(message);
+  // The copy action turns every error into a bug-report start (the
+  // taskly updateCopyError contract): one click puts the verbatim
+  // message on the clipboard.
+  auto copy = Button();
+  copy.Content(box_value(tr_hstring("error.copy")));
+  copy.Click([message](auto const&, auto const&) {
+    try {
+      DataTransfer::DataPackage package;
+      package.SetText(message);
+      DataTransfer::Clipboard::SetContent(package);
+    } catch (...) {
+    }
+  });
+  ErrorBar().ActionButton(copy);
   ErrorBar().IsOpen(true);
 }
 
@@ -674,339 +697,6 @@ void MainWindow::StopUpdateTimer() {
   if (update_timer_) update_timer_.Stop();
 }
 
-void MainWindow::RunUpdateFlow(
-    Controls::Button update_button, Controls::TextBlock update_status,
-    Controls::Button update_cancel) {
-  auto const backend = backend_;
-  if (backend == nullptr || !backend->running()) {
-    ShowError(tr_hstring("error.backend-not-ready"));
-    return;
-  }
-  auto const set_status = [update_status](hstring const& text) {
-    update_status.Text(text);
-  };
-  auto const set_button = [update_button](hstring const& text, bool enabled) {
-    update_button.Content(box_value(text));
-    update_button.IsEnabled(enabled);
-  };
-  set_button(hstring(tr_hstring("update.working")), false);
-  set_status(hstring(tr_hstring("update.checking")));
-
-  auto const weak = get_weak();
-  rivet_app::API api(*backend);
-  (void)api.check_updates_async(
-      [weak, backend, update_button, update_status, update_cancel](
-          rivet_app::Result<std::string> result) {
-        auto const window = weak.get();
-        if (window == nullptr) return;
-        window->DispatcherQueue().TryEnqueue(
-            [weak, backend, update_button, update_status, update_cancel,
-             result]() {
-              auto const window2 = weak.get();
-              if (window2 == nullptr) return;
-              // A failed check (portable flavor refuses updates, network
-              // down, manifest unverifiable) surfaces here: show the
-              // reason and open the releases page for a manual grab.
-              auto const set_status =
-                  [update_status](hstring const& t) { update_status.Text(t); };
-              auto const set_button = [update_button](hstring const& t,
-                                                      bool enabled) {
-                update_button.Content(box_value(t));
-                update_button.IsEnabled(enabled);
-              };
-              try {
-                (void)result.get();
-              } catch (std::exception const& check_error) {
-                // Portable flavor refuses updates; the network or the
-                // manifest may be unreachable. Show why, offer the page.
-                set_status(winrt::to_hstring(check_error.what()));
-                window2->OpenReleasesPage();
-                set_button(hstring(tr_hstring("update.check")), true);
-                return;
-              }
-              window2->PollUpdatePhase(update_button, update_status,
-                                       update_cancel);
-            });
-      });
-}
-
-void MainWindow::PollUpdatePhase(
-    Controls::Button update_button, Controls::TextBlock update_status,
-    Controls::Button update_cancel) {
-  auto const backend = backend_;
-  if (backend == nullptr || !backend->running()) return;
-  auto const set_status = [update_status](hstring const& text) {
-    update_status.Text(text);
-  };
-  auto const set_button = [update_button](hstring const& text, bool enabled) {
-    update_button.Content(box_value(text));
-    update_button.IsEnabled(enabled);
-  };
-  auto const set_cancel = [update_cancel](bool visible) {
-    update_cancel.Visibility(visible ? Visibility::Visible
-                                     : Visibility::Collapsed);
-  };
-  try {
-    rivet_app::API api(*backend);
-    auto const phase = api.updater_phase().get();
-    if (phase == "available") {
-      set_button(hstring(tr_hstring("update.working")), false);
-      set_status(hstring(tr_hstring("update.downloading")));
-      set_cancel(false);
-      (void)api.start_download().get();
-
-      auto weak = get_weak();
-      update_timer_ = DispatcherTimer();
-      update_timer_.Interval(std::chrono::milliseconds{1000});
-      update_timer_.Tick([weak, update_button, update_status,
-                          update_cancel](auto const&, auto const&) {
-            if (auto window = weak.get()) {
-              window->PollUpdatePhase(update_button, update_status,
-                                      update_cancel);
-            }
-          });
-      update_timer_.Start();
-    } else if (phase == "downloaded") {
-      update_install_armed_ = true;
-      set_cancel(false);
-      if (auto const version = api.updater_available_version().get();
-          !version.empty()) {
-        set_status(hstring{
-            std::wstring{tr_hstring("update.ready")} + L" " +
-            std::wstring{winrt::to_hstring(version)}});
-      } else {
-        set_status(hstring(tr_hstring("update.downloaded")));
-      }
-      set_button(hstring(tr_hstring("update.install")), true);
-      StopUpdateTimer();
-    } else if (phase == "error") {
-      update_install_armed_ = false;
-      StopUpdateTimer();
-      set_cancel(false);
-      set_button(hstring(tr_hstring("update.check")), true);
-      OpenReleasesPage();
-    } else if (phase == "up-to-date") {
-      update_install_armed_ = false;
-      StopUpdateTimer();
-      set_cancel(false);
-      set_status(hstring(tr_hstring("update.uptodate")));
-      set_button(hstring(tr_hstring("update.check")), true);
-    } else if (phase == "downloading") {
-      set_cancel(true);
-      auto const percent = api.updater_percent().get();
-      set_status(hstring{
-          std::wstring{tr_hstring("update.progress")} + L" " +
-          std::to_wstring(percent) + L"%"});
-    } else if (phase == "idle") {
-      // a canceled download lands here; restore the resting row
-      update_install_armed_ = false;
-      StopUpdateTimer();
-      set_cancel(false);
-      set_status(hstring(tr_hstring("update.idle")));
-      set_button(hstring(tr_hstring("update.check")), true);
-    }
-  } catch (std::exception const& e) {
-    ShowError(winrt::to_hstring(e.what()));
-    StopUpdateTimer();
-  }
-}
-
-void MainWindow::InstallVerifiedUpdate() {
-  auto const backend = backend_;
-  if (backend == nullptr || !backend->running()) return;
-  try {
-    rivet_app::API api(*backend);
-    auto const msi = api.verified_msi().get();
-    // Same identity constant as the backend updater (rivet.rktd's
-    // identifier); the handoff uses it only for its temp-file root.
-    rivet::update::MsiHandoff::LaunchVerifiedInstaller(
-        L"dev.rivet.shuttle",
-        std::filesystem::path{winrt::to_hstring(msi).c_str()},
-        executable_path().wstring());
-  } catch (std::exception const& e) {
-    ShowError(winrt::to_hstring(e.what()));
-  }
-}
-
-// Taskly-family silent check (shared/spec UPDATE.md behavior contract):
-// at most one network check per 4 hours, gated by the auto-check toggle;
-// the timestamp is stamped BEFORE the check so a failing check cannot
-// hammer the feed, and check failures never surface to the user — only
-// a newer version does (as an offer dialog). Manual checks from the
-// settings dialog bypass the throttle and report every outcome.
-winrt::fire_and_forget MainWindow::StartSilentUpdateCheck() {
-  auto const backend = backend_;
-  if (backend == nullptr || !backend->running()) co_return;
-  auto const weak = get_weak();
-  auto const dispatcher = DispatcherQueue();
-  try {
-    co_await winrt::resume_background();
-    rivet_app::API api(*backend);
-    if (!api.get_auto_check_updates().get()) co_return;
-    auto const now =
-        std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::system_clock::now().time_since_epoch())
-            .count();
-    auto const last = api.get_last_update_check().get();
-    constexpr std::int64_t kSilentCheckInterval = 4 * 60 * 60;
-    if (last > 0 && now - last < kSilentCheckInterval) co_return;
-    (void)api.touch_last_update_check().get();
-    (void)api.check_updates().get();
-    if (api.updater_phase().get() != "available") co_return;
-    auto const version = api.updater_available_version().get();
-    if (version.empty()) co_return;
-    dispatcher.TryEnqueue(
-        [weak, version = winrt::to_hstring(version)] {
-          if (auto window = weak.get()) {
-            window->ShowUpdateOfferDialog(version);
-          }
-        });
-  } catch (...) {
-    // Silent mode: a failed check is not the user's problem.
-  }
-}
-
-// The offer dialog walks offer → download → armed install on its primary
-// button, keeping itself open the whole way (PrimaryButtonClick cancels
-// the auto-close); its Cancel button closes the dialog and, while a
-// download is in flight, cancels the transfer — the verified candidate
-// stays on the backend so the offer can be retried.
-void MainWindow::ShowUpdateOfferDialog(winrt::hstring const& version) {
-  if (update_offer_dialog_ != nullptr || settings_dialog_ != nullptr) return;
-  auto const weak = get_weak();
-  auto dialog = ContentDialog();
-  update_offer_dialog_ = dialog;
-
-  dialog.Title(box_value(tr_hstring("update.available-title")));
-  auto stack = StackPanel();
-  stack.Spacing(8);
-  auto versions = TextBlock();
-  versions.Text(hstring{winrt::to_hstring(rivet_app::kVersion)} + L" → " +
-                version);
-  versions.FontSize(14);
-  auto body = TextBlock();
-  body.Text(tr_hstring("update.available-body"));
-  body.TextWrapping(TextWrapping::Wrap);
-  auto status = TextBlock();
-  status.Opacity(0.75);
-  status.FontSize(12);
-  status.Visibility(Visibility::Collapsed);
-  stack.Children().Append(versions);
-  stack.Children().Append(body);
-  stack.Children().Append(status);
-
-  dialog.Content(stack);
-  dialog.PrimaryButtonText(tr_hstring("update.install-now"));
-  dialog.CloseButtonText(tr_hstring("settings.cancel"));
-  dialog.DefaultButton(ContentDialogButton::Primary);
-  dialog.XamlRoot(Content().XamlRoot());
-
-  dialog.PrimaryButtonClick(
-      [weak, dialog, status](auto const&,
-                             ContentDialogButtonClickEventArgs const& args) {
-        args.Cancel(true);
-        auto const window = weak.get();
-        if (!window) return;
-        auto const backend = window->backend_;
-        if (!backend || !backend->running()) return;
-        if (window->update_offer_armed_) {
-          window->InstallVerifiedUpdate();  // the handoff terminates the app
-          return;
-        }
-        if (window->update_offer_downloading_) return;
-        try {
-          rivet_app::API api(*backend);
-          (void)api.start_download().get();
-        } catch (...) {
-          return;
-        }
-        window->update_offer_downloading_ = true;
-        dialog.IsPrimaryButtonEnabled(false);
-        status.Visibility(Visibility::Visible);
-        status.Text(tr_hstring("update.downloading"));
-        window->update_offer_timer_ = DispatcherTimer();
-        window->update_offer_timer_.Interval(
-            std::chrono::milliseconds{1000});
-        window->update_offer_timer_.Tick(
-            [weak, dialog, status](auto const&, auto const&) {
-              auto const window = weak.get();
-              if (!window) return;
-              auto const backend = window->backend_;
-              if (!backend || !backend->running()) {
-                window->update_offer_timer_.Stop();
-                return;
-              }
-              try {
-                rivet_app::API api(*backend);
-                auto const phase = api.updater_phase().get();
-                if (phase == "downloaded") {
-                  window->update_offer_timer_.Stop();
-                  window->update_offer_downloading_ = false;
-                  window->update_offer_armed_ = true;
-                  dialog.IsPrimaryButtonEnabled(true);
-                  dialog.PrimaryButtonText(tr_hstring("update.install"));
-                  status.Text(tr_hstring("update.downloaded"));
-                } else if (phase == "downloading" || phase == "available") {
-                  status.Text(
-                      hstring{std::wstring{tr_hstring("update.progress")} +
-                              L" " +
-                              std::to_wstring(api.updater_percent().get()) +
-                              L"%"});
-                } else if (phase == "error") {
-                  window->update_offer_timer_.Stop();
-                  window->update_offer_downloading_ = false;
-                  dialog.IsPrimaryButtonEnabled(true);
-                  dialog.PrimaryButtonText(tr_hstring("update.install-now"));
-                  auto const message = api.updater_message().get();
-                  status.Text(winrt::to_hstring(
-                      message.empty() ? "update failed" : message));
-                } else if (phase == "idle") {
-                  // canceled — back to a clean offer for a retry
-                  window->update_offer_timer_.Stop();
-                  window->update_offer_downloading_ = false;
-                  dialog.IsPrimaryButtonEnabled(true);
-                  dialog.PrimaryButtonText(tr_hstring("update.install-now"));
-                  status.Visibility(Visibility::Collapsed);
-                }
-              } catch (...) {
-                window->update_offer_timer_.Stop();
-                window->update_offer_downloading_ = false;
-                dialog.IsPrimaryButtonEnabled(true);
-                dialog.PrimaryButtonText(tr_hstring("update.install-now"));
-              }
-            });
-        window->update_offer_timer_.Start();
-      });
-
-  auto const on_closed = [weak](auto const&, auto const&) {
-    auto const window = weak.get();
-    if (!window) return;
-    window->update_offer_timer_.Stop();
-    window->update_offer_dialog_ = nullptr;
-    if (window->update_offer_downloading_) {
-      window->update_offer_downloading_ = false;
-      auto const backend = window->backend_;
-      if (backend && backend->running()) {
-        try {
-          rivet_app::API api(*backend);
-          (void)api.cancel_download().get();
-        } catch (...) {
-        }
-      }
-    }
-  };
-  dialog.Closed(on_closed);
-  dialog.ShowAsync().Completed(on_closed);
-}
-
-void MainWindow::OpenReleasesPage() {
-  try {
-    auto const page =
-        winrt::Windows::Foundation::Uri{L"https://github.com/turlamai/shuttle/releases/latest"};
-    (void)Windows::System::Launcher::LaunchUriAsync(page);
-  } catch (...) {
-  }
-}
 
 void MainWindow::ApplyLanguageRefresh() {
   // Re-render every static text after the language override changes.

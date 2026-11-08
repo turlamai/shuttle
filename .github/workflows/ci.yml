@@ -61,3 +61,11 @@ jobs:
         run: raco rivet build
       - name: Backend engine tests (pure units)
         run: raco test app/backend.rkt
+      # The full send→receive→sweep chain against a synthetic mailbox —
+      # hermetic since the acceptance rework, so CI exercises it too.
+      - name: Mailbox chain (bridge)
+        run: racket -l racket/base -e '(require (submod "app/backend.rkt" test)) (test-main)'
+      # Release-kind update evidence: signed-feed rejection, N→N+1
+      # lifecycle, data preservation, flavor artifact selection.
+      - name: Release update suite
+        run: racket scripts/acceptance/release-update.rkt

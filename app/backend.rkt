@@ -762,8 +762,13 @@
 
 (define (ensure-updater!)
   (unless (updater-instance)
-    (unless (equal? (hash-ref (config) 'install-flavor #f) "msi")
-      (error 'shuttle "updates require the MSI installation"))
+    (define flavor (hash-ref (config) 'install-flavor #f))
+    ;; Both installed shapes participate in online updates: MSI selects
+    ;; the signed msi artifact (MsiHandoff installs it), portable selects
+    ;; the zip (the host's cmd handoff swaps the install tree). Anything
+    ;; else — a dev checkout with no flavor at all — refuses updates.
+    (unless (member flavor '("msi" "portable"))
+      (error 'shuttle "updates require an installed Shuttle copy"))
     (updater-instance
      (make-updater
       #:application-id update-application-id
@@ -771,7 +776,7 @@
       #:channel 'stable
       #:platform 'windows
       #:architecture 'x64
-      #:install-kind 'msi
+      #:install-kind (if (equal? flavor "msi") 'msi 'portable)
       #:public-key (base64-decode-string update-public-key-b64)
       #:key-id update-key-id
       #:manifest-url update-manifest-url
@@ -853,6 +858,17 @@
   (snapshot-field 'availableVersion))
 
 (define-rpc (verified-msi : String)
+  (ensure-updater!)
+  (define state (updater-state (updater-instance)))
+  (define path (hash-ref state 'downloadedPath #f))
+  (unless (and (string? path) (file-exists? path))
+    (error 'shuttle "no verified update artifact is available"))
+  path)
+
+;; Flavor-neutral twin of verified-msi: the downloaded, manifest-verified
+;; artifact whatever its installer shape (msi for MSI installs, zip for
+;; portable handoffs). The host picks the install mechanism itself.
+(define-rpc (verified-artifact : String)
   (ensure-updater!)
   (define state (updater-state (updater-instance)))
   (define path (hash-ref state 'downloadedPath #f))
@@ -1037,17 +1053,17 @@
     (check-equal? (hash-ref m 'size) 123)
     (delete-directory/files tmp))
 
-  ;; --- full mailbox chain against the real share ------------------
-  ;; Uses a dedicated self-test mailbox so real mail is never touched.
+  ;; --- full mailbox chain, fully synthetic -------------------------
   ;; The send runs under a fake machine identity, then receive-cycle!
-  ;; (as this machine) must pick it up, verify, and clean the share.
+  ;; (as this machine) must pick it up, verify, and clean the mailbox.
+  ;; Everything lives under temp directories: no dependency on this
+  ;; machine's real configuration, so the same chain runs in CI
+  ;; (windows-latest) exactly as on a developer machine. The protocol
+  ;; invariants under test (manifest-first, .done gating, addressed
+  ;; claims, sweep ownership) are share-independent.
   (define (run-mailbox-selftest!)
-    ;; The selftest mailbox is a sibling of the configured relay, so
-    ;; the test exercises the same share without touching real mail.
-    (init!) ; load the real config for the relay location
     (define relay
-      (build-path (path-only (string->path
-                              (hash-ref (config) 'relay-dir)))
+      (build-path (make-temporary-file "shuttle-selftest~a" 'directory)
                   ".shuttle-selftest"))
     (define downloads (make-temporary-file "shuttle-dl~a" 'directory))
     (init! #:force? #t
@@ -1243,19 +1259,25 @@
     (async-channel-put send-queue (cons id path))
     (hasheq 'id id))
 
-  ;; Update wiring, portable flavor: ensure-updater! must refuse (the
-  ;; error surfaces through check-updates) and never create an instance.
-  (test-case "updater refuses without msi flavor"
+  ;; Update wiring, flavor gate: both installed shapes construct an
+  ;; updater (msi → msi artifacts, portable → zip); a dev checkout with
+  ;; no flavor at all refuses (the error surfaces through check-updates).
+  (test-case "updater flavor gate"
     (define cfg (make-temporary-file "shuttle-upd~a" 'directory))
     (init! #:force? #t
            #:config-dir cfg
            #:relay-dir (build-path cfg "relay")
            #:download-dir (build-path cfg "dl"))
-    (config (hash-set* (config) 'install-flavor "portable"))
+    (config (hash-remove (config) 'install-flavor))
     (updater-instance #f)
-    (check-exn #rx"updates require the MSI installation"
+    (check-exn #rx"updates require an installed Shuttle copy"
                (lambda () (ensure-updater!)))
     (check-false (updater-instance))
+    (config (hash-set* (config) 'install-flavor "portable"))
+    (updater-instance #f)
+    (check-not-exn (lambda () (ensure-updater!)))
+    (check-not-false (updater-instance))
+    (updater-instance #f)
     (delete-directory/files cfg))
 
   ;; The multi-user guarantee: mail addressed to another machine is

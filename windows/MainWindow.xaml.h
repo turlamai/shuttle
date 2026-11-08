@@ -14,6 +14,12 @@
 
 namespace winrt::RivetHost::implementation {
 
+// Host helpers shared with MainWindow.Update.cpp (the taskly family
+// pattern): declared here, defined in MainWindow.xaml.cpp.
+std::filesystem::path executable_path();
+winrt::hstring tr_hstring(char const* key);
+bool IsMsiInstall();
+
 struct MainWindow : MainWindowT<MainWindow> {
   MainWindow();
 
@@ -58,6 +64,9 @@ struct MainWindow : MainWindowT<MainWindow> {
                        winrt::Microsoft::UI::Xaml::Controls::TextBlock update_status,
                        winrt::Microsoft::UI::Xaml::Controls::Button update_cancel);
   void InstallVerifiedUpdate();
+  void LaunchPortableHandoff(std::filesystem::path const& zip);
+  void HandleInstallMarkers();
+  void ShowInstallFailure(std::wstring const& reason);
   void OpenReleasesPage();
   winrt::fire_and_forget StartSilentUpdateCheck();
   void ShowUpdateOfferDialog(winrt::hstring const& version);
