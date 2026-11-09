@@ -10,6 +10,7 @@
   "drop.title.ready": "Drop files to send",
   "error.backend-not-ready": "Backend is not ready yet",
   "error.copy": "Copy error",
+  "error.picker": "Could not open the file picker",
   "error.send": "Send failed",
   "error.send-folder": "Sending folders is not supported yet",
   "error.settings-save": "Failed to save settings",

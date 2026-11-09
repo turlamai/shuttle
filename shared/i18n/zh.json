@@ -10,6 +10,7 @@
   "drop.title.ready": "拖放文件即可发送",
   "error.backend-not-ready": "后端未就绪，请稍候",
   "error.copy": "复制错误",
+  "error.picker": "无法打开文件选择器",
   "error.send": "发送失败",
   "error.send-folder": "暂不支持发送文件夹",
   "error.settings-save": "保存设置失败",

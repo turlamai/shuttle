@@ -14,9 +14,9 @@
 
 #include <winrt/Microsoft.UI.Windowing.h>
 #include <winrt/Microsoft.UI.Xaml.Automation.h>
+#include <winrt/Microsoft.Windows.Storage.Pickers.h>
 #include <winrt/Windows.ApplicationModel.DataTransfer.h>
 #include <winrt/Windows.Foundation.Collections.h>
-#include <winrt/Windows.Storage.Pickers.h>
 #include <winrt/Windows.Storage.h>
 #include <winrt/Windows.System.h>
 
@@ -36,6 +36,11 @@ using namespace winrt::Windows::Storage;
 using namespace winrt::Windows::Storage::Pickers;
 
 namespace DataTransfer = winrt::Windows::ApplicationModel::DataTransfer;
+
+// The WinAppSDK pickers are the unpackaged-desktop replacement for the
+// legacy Windows.Storage pickers (whose UWP activation fails without
+// package identity).
+namespace Pickers = winrt::Microsoft::Windows::Storage::Pickers;
 
 // Host helpers shared with MainWindow.Update.cpp (the taskly family
 // pattern): declared in MainWindow.xaml.h, defined here.
@@ -153,22 +158,6 @@ rivet::windows::RacketRuntimeConfig runtime_config() {
   config.entry_symbol = rivet_app::kEntryName;
   config.dll_dir = runtime.wstring();
   return config;
-}
-
-// FileOpenPicker and FolderPicker are WinRT activation-based; unpackaged
-// desktop apps must hand them the top-level HWND. Declared locally with
-// the canonical IInitializeWithWindow IID: same GUID, same vtable shape,
-// immune to SDK header declaration drift.
-struct __declspec(uuid("3D4BEFD3-9DFA-4DAF-A44A-2C2E26F1E23A"))
-    PickerWindowInitializer : ::IUnknown {
-  virtual HRESULT STDMETHODCALLTYPE SetWindow(HWND hwnd) = 0;
-};
-
-template <typename Picker>
-void BindPickerToWindow(Picker const& picker, HWND window) {
-  if (auto const target = picker.template try_as<PickerWindowInitializer>()) {
-    winrt::check_hresult(target->SetWindow(window));
-  }
 }
 
 // i18n strings are UTF-8 string_views from the embedded table; project
@@ -897,27 +886,31 @@ void MainWindow::ShowSettingsDialog() {
   relay_browse.Content(box_value(hstring(L"…")));
   download_browse.Content(box_value(hstring(L"…")));
 
-  // The settings browse buttons open folder pickers, activation-based like
-  // the send-files picker, so the same HWND binding applies. A picked
-  // folder only updates the box; it takes effect through the dialog's
-  // normal Save path.
+  // The settings browse buttons open the WinAppSDK FolderPicker: the
+  // legacy Windows.Storage pickers depend on UWP activation and fail on
+  // unpackaged desktop apps (the failure used to be swallowed, so the
+  // button silently did nothing). A picked folder only updates the box;
+  // it takes effect through the dialog's normal Save path. Picker
+  // failures surface through the error bar instead of vanishing.
   auto wire_folder_browse = [weak](Button button, TextBox box,
                                    char const* automation_key) {
     winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetName(
         button, tr_hstring(automation_key));
     button.Click([weak, box](auto const&, auto const&) ->
                  winrt::fire_and_forget {
+      auto window = weak.get();
+      if (window == nullptr) co_return;
       try {
-        auto window = weak.get();
-        if (window == nullptr) co_return;
-        FolderPicker picker;
-        picker.ViewMode(PickerViewMode::List);
-        BindPickerToWindow(picker, window->WindowHandle());
+        Pickers::FolderPicker picker(window->AppWindow().Id());
+        picker.ViewMode(Pickers::PickerViewMode::List);
         auto const folder = co_await picker.PickSingleFolderAsync();
         if (folder != nullptr) {
           box.Text(folder.Path());
         }
+      } catch (winrt::hresult_error const& e) {
+        window->ShowError(e.message());
       } catch (...) {
+        window->ShowError(tr_hstring("error.picker"));
       }
     });
   };
@@ -1138,10 +1131,8 @@ void MainWindow::DropZone_Tapped(
         window->ShowError(tr_hstring("error.backend-not-ready"));
         co_return;
       }
-      FileOpenPicker picker;
-      picker.ViewMode(PickerViewMode::List);
-      picker.FileTypeFilter().Append(L"*");
-      BindPickerToWindow(picker, window->WindowHandle());
+      Pickers::FileOpenPicker picker(window->AppWindow().Id());
+      picker.ViewMode(Pickers::PickerViewMode::List);
       auto const files = co_await picker.PickMultipleFilesAsync();
       if (files.Size() == 0) co_return;
       std::vector<std::wstring> paths;
@@ -1149,7 +1140,12 @@ void MainWindow::DropZone_Tapped(
         paths.push_back(std::wstring{file.Path()});
       }
       window->SendPathsAsync(std::move(paths));
+    } catch (winrt::hresult_error const& e) {
+      if (auto window = weak.get()) window->ShowError(e.message());
     } catch (...) {
+      if (auto window = weak.get()) {
+        window->ShowError(tr_hstring("error.picker"));
+      }
     }
   };
   pick();
