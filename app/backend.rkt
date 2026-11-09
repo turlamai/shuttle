@@ -67,7 +67,7 @@
 
 ;; Bumped together with rivet.rktd and the generated C++ client; the
 ;; release preflight (scripts/check-release-version.sh) asserts all four.
-(define app-version "1.2.3")
+(define app-version "1.2.4")
 
 ;; The updater identity must equal rivet.rktd's `identifier` — the value
 ;; the signed manifest carries as application_id. select-update rejects

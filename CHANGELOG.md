@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.4]
+
+### Fixed
+
+- **The settings `…` buttons open a real folder picker now**: the picker
+  call shipped in 1.2.1 depended on UWP activation that fails on
+  unpackaged desktop apps, and the failure was swallowed — clicking the
+  relay/download browse buttons did nothing at all. Both pickers (and
+  the tapped send-files picker) now use the WinAppSDK pickers built for
+  desktop apps; verified by driving the real UI end to end.
+- Picker failures surface through the error bar with the 复制错误 button
+  instead of vanishing silently.
+
 ## [1.2.3]
 
 ### Added
