@@ -10,6 +10,7 @@
          racket/function
          racket/list
          racket/path
+         racket/port
          racket/string
          racket/system
          racket/async-channel
@@ -28,6 +29,7 @@
          self-grant-full-control! write-manifest! write-done-marker!
          ensure-wscript-js! ensure-updater! updater-instance
          my-identity claims? remember-peer!
+         relay-reachable?
          mailbox-folder-name write-done-marker! folder-stamp new-transfer-id)
 
 ;; ---------------------------------------------------------------- contract
@@ -578,21 +580,105 @@
     (sort (filter directory-exists? (directory-list relay #:build? #t))
           string<? #:key path->string)))
 
+;; A mapped-but-disconnected share (Z: stuck "Reconnecting") makes win32
+;; file calls block the Racket CS engine thread for tens of seconds —
+;; every RPC stalls with them and the host shows "Backend is not ready
+;; yet". Two hard lessons shape this probe:
+;;
+;; 1. Blockers must be child processes (the icacls/wscript lesson), but
+;;    a child that itself touches the dead share hangs just as long —
+;;    and killing the worker thread cannot interrupt a thread parked in
+;;    a win32 syscall, so `if exist` probes through cmd did NOT fix the
+;;    stall (measured: still minutes to ready).
+;; 2. Parameterless `net use` only enumerates the local redirection
+;;    state table — it returns immediately (~300 ms measured) even while
+;;    a drive is stuck Reconnecting, unlike `net use <drive>` which
+;;    talks to the server and hangs like every other SMB call (measured
+;;    on the stuck Z:). The drive's status line starting with OK is the
+;;    reachability signal.
+;;
+;; The mailbox scan only runs when the mapping reports OK; a local disk
+;; letter (no net-use line) or a UNC path keeps the ancestor walk, where
+;; blocking calls are genuinely fast. Residual risk: a share that
+;; degrades between an OK verdict and the scan can still stall one cycle
+;; — mitigated by the receiver loop's backoff, and a candidate for a
+;; place-based scan upstream.
+(define (drive-letter-of path-string)
+  (define m (regexp-match #px"^([A-Za-z]):" path-string))
+  (and m (string-append (second m) ":")))
+
+;; The drive's line from the parameterless net use enumeration, or #f
+;; when the letter is not a network mapping (local disk).
+(define (mapped-drive-status-line drive)
+  (define cmd (build-path (find-system-path 'sys-dir) "cmd.exe"))
+  (with-handlers ([exn:fail? (lambda (_) #f)])
+    (call-with-hard-timeout 3
+      (lambda ()
+        (define out
+          (with-output-to-string
+            (lambda () (system* cmd "/c" "net" "use"))))
+        (for/first ([line (in-list (string-split out "\n"))]
+                    #:when (regexp-match?
+                            (pregexp (string-append "^\\s*\\S+\\s+"
+                                                    (regexp-quote drive)
+                                                    "\\s"))
+                            line))
+          (string-trim line))))))
+
+(define (relay-reachable? relay)
+  (define drive (drive-letter-of (path->string relay)))
+  (cond
+    [(and drive (mapped-drive-status-line drive))
+     => (lambda (line) (regexp-match? #rx"^OK\\b" line))]
+    ;; No drive letter (UNC or local path): walk to the closest existing
+    ;; ancestor in a child process — on local disks these calls answer
+    ;; immediately; the mailbox folder itself may not exist yet.
+    [else
+     (define code
+       (with-handlers ([exn:fail? (lambda (_) -1)])
+         (call-with-hard-timeout 3
+           (lambda ()
+             (define cmd
+               (build-path (find-system-path 'sys-dir) "cmd.exe"))
+             (let loop ([p (path->string relay)])
+               (define c
+                 (system*/exit-code
+                  cmd "/c" "if" "not" "exist" p "exit" "/b" "1"))
+               (cond
+                 [(eq? c 0) 0]
+                 [(= c 1)
+                  (define-values (base _name _dir?) (split-path p))
+                  (define base-string
+                    (and (path? base) (path->string base)))
+                  (cond
+                    [(not base-string) c]
+                    [(regexp-match? #px"^[A-Za-z]:[\\\\/]?$" base-string) c]
+                    [else (loop base-string)])]
+                 [else c]))))))
+       (and (eq? code 0) #t)]))
+
 (define (receive-cycle!)
   (define relay (string->path (hash-ref (config) 'relay-dir)))
   (define downloads (string->path (hash-ref (config) 'download-dir)))
 
   (cond
+    [(not (relay-reachable? relay))
+     ;; Unreachable: report and back off (the receiver loop sleeps
+     ;; longer) instead of hammering a hanging share every 1.5 s.
+     (update-relay-health! #f "中转目录不可达，请检查共享盘映射（Z:）")
+     #f]
     [(not (directory-exists? relay))
      (with-handlers ([exn:fail? void]) (make-directory* relay))
      (update-relay-health!
       (directory-exists? relay)
-      "中转目录不可达，请检查共享盘映射（Z:）")]
+      "中转目录不可达，请检查共享盘映射（Z:）")
+     #t]
     [else
      (update-relay-health! #t "信箱在线")
      (with-handlers ([exn:fail? void]) (make-directory* downloads))
      (for ([folder (in-list (relay-folders relay))])
-       (try-receive! folder downloads))]))
+       (try-receive! folder downloads))
+     #t]))
 
 ;; This installation's identity: the configured name (defaults to the
 ;; machine name). Manifest `to`/`sender` fields are matched against it.
@@ -701,6 +787,10 @@
 ;; as sender are ever removed. The mailbox is a relay, not storage — the
 ;; original file stays wherever the user sent it from.
 (define (sweep-own-folders! relay)
+  ;; Same engine-blocking rule as receive-cycle!: never touch a hanging
+  ;; share from the engine thread; an unreachable mailbox just skips.
+  (unless (relay-reachable? relay)
+    (error 'sweep "relay unreachable, sweep skipped"))
   (define now-seconds (current-seconds))
   (for ([folder (in-list (relay-folders relay))])
     (define manifest (read-manifest folder))
@@ -730,9 +820,12 @@
 
 (define (receiver-loop)
   (let loop ()
+    (define ok? #t)
     (with-handlers ([exn:fail? void])
-      (receive-cycle!))
-    (sleep 1.5)
+      (set! ok? (receive-cycle!)))
+    ;; An unreachable share gets a long backoff: the probe already spent
+    ;; its timeout on it, and every extra poke leaks a hanging child.
+    (sleep (if ok? 1.5 10))
     (loop)))
 
 ;; ---------------------------------------------------------------- updates
@@ -894,6 +987,11 @@
   (define trimmed-to (string-trim (or to "")))
   (when (string=? trimmed-to "")
     (error 'shuttle "请先在主窗口填写对方电脑名"))
+  ;; Fail fast on an unreachable mailbox (the probe runs in a child
+  ;; process); without this gate the sender thread's relay mkdir would
+  ;; block the engine for the SMB timeout.
+  (unless (relay-reachable? (string->path (hash-ref (config) 'relay-dir)))
+    (error 'shuttle "中转目录不可达，请检查共享盘映射（Z:）"))
   (define base (file-name-from-path (string->path path)))
   (define safe-name (or (sanitize-filename path)
                         (and base (path->string base))))
@@ -1027,6 +1125,17 @@
   (provide test-main)
 
   ;; --- pure helpers -----------------------------------------------
+  (test-case "relay-reachable? answers without stalling the engine"
+    ;; The mailbox folder may not exist yet — the probe must answer for
+    ;; the nearest existing ancestor (a nonexistent local path walks to
+    ;; the drive root and fails fast there). The disconnected-mapped-drive
+    ;; hang path is exercised live where such a share exists.
+    (define tmp (make-temporary-file "shuttle-probe~a" 'directory))
+    (check-true (relay-reachable? tmp))
+    (check-true (relay-reachable? (build-path tmp "not-yet-created")))
+    (check-false (relay-reachable? (build-path (string->path "Q:\\") "no-such")))
+    (delete-directory/files tmp))
+
   (test-case "sanitize-filename"
     (check-equal? (sanitize-filename "报告.zip") "报告.zip")
     (check-equal? (sanitize-filename "C:\\evil\\..\\x.txt") "x.txt")

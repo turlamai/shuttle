@@ -559,6 +559,10 @@ winrt::fire_and_forget MainWindow::InitializeBackendAsync() {
                     }
                   } catch (...) {
                   }
+                  // The backend is answering: clear any transient boot
+                  // banner ("Backend is not ready yet" was sticky and kept
+                  // implying failure long after startup succeeded).
+                  window->ErrorBar().IsOpen(false);
                   window->SetupPolling();
                   window->HandleInstallMarkers();
                   window->StartSilentUpdateCheck();
