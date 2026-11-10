@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.2.5]
+
+### Fixed
+
+- **The app no longer freezes at launch when the department share is
+  down**: with the mapped relay drive stuck reconnecting, the backend's
+  mailbox scan blocked the whole engine — the UI showed "Backend is
+  not ready yet" for minutes. Reachability is now read from the drive
+  mapping's own state table (instant, never touches the network); an
+  unreachable mailbox shows in the health indicator immediately,
+  sending fails fast with a clear message, and the app is usable the
+  moment it opens.
+
+### Added
+
+- **Single-instance protection**: launching a second Shuttle brings the
+  running window to the front instead of starting a second backend
+  that would race the same mailbox.
+
 ## [1.2.4]
 
 ### Fixed
